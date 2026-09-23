@@ -1232,15 +1232,15 @@ static struct attribute *gc573_attrs[] = {
 	NULL,
 };
 static ssize_t captured_frame_read(struct file *file, struct kobject *kobj,
-				  const struct bin_attribute *attr, char *buf,
+				  GC573_SYSFS_READ_CONST struct bin_attribute *attr, char *buf,
 				  loff_t off, size_t count)
 {
 	struct gc573_device *card = dev_get_drvdata(kobj_to_dev(kobj));
 
 	return gc573_capture_read(card->capture, buf, off, count);
 }
-static const BIN_ATTR_RO(captured_frame, GC573_FRAME_BYTES);
-static const struct bin_attribute *const gc573_bin_attrs[] = {
+static GC573_SYSFS_BIN_CONST BIN_ATTR_RO(captured_frame, GC573_FRAME_BYTES);
+static GC573_SYSFS_BIN_CONST struct bin_attribute *GC573_SYSFS_BIN_CONST gc573_bin_attrs[] = {
 	&bin_attr_captured_frame, NULL,
 };
 static const struct attribute_group gc573_group = {

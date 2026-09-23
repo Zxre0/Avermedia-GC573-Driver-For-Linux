@@ -23,3 +23,15 @@ gc573_native-y += gc573_audio.o
 ifneq ($(shell grep -F 'void (*wait_prepare)' $(srctree)/include/media/videobuf2-core.h),)
 ccflags-y += -DGC573_VB2_NEEDS_WAIT_OPS
 endif
+
+# Detect the sysfs const API in the target headers (including distro backports).
+ifneq ($(shell grep -E 'ssize_t.*read.*const struct bin_attribute' $(srctree)/include/linux/sysfs.h),)
+ccflags-y += -DGC573_SYSFS_READ_CONST=const
+else
+ccflags-y += -DGC573_SYSFS_READ_CONST=
+endif
+ifneq ($(shell grep -E 'const struct bin_attribute.*bin_attrs;' $(srctree)/include/linux/sysfs.h),)
+ccflags-y += -DGC573_SYSFS_BIN_CONST=const
+else
+ccflags-y += -DGC573_SYSFS_BIN_CONST=
+endif
