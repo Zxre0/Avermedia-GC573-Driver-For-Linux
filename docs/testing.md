@@ -107,3 +107,12 @@ Use `tools/build.sh` with matching headers to compile the kernel module. CI
 compiles against distribution headers and runs these userspace tests. It has no
 PCI card attached. Do not describe compilation or period interrupts as proof of
 working video/audio content.
+
+## Installation scripts
+
+The install/uninstall tests run in a temporary filesystem with simulated package,
+service and privilege boundaries. They cover build failure before helper activation,
+installation order, absent login units, repeatable removal, busy-module refusal,
+WirePlumber restoration on failure, settings retention, symlink targets and
+preservation of recordings/backups. They do not uninstall the working test PC or
+claim a fresh installation on every supported package manager.

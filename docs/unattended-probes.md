@@ -1,5 +1,12 @@
 # Unattended development and boot startup
 
+`./install.sh` installs dependencies, the app, helper and boot service together.
+`./uninstall.sh` disables startup, unloads the driver and removes the project
+installation, including saved lighting settings (use `--keep-settings` to keep
+them). Shared packages, source and personal recordings are preserved. See the
+[easy setup guide](../README.md#easy-install-and-uninstall). The individual
+commands below remain available for manual setup.
+
 From a normal account in the project checkout:
 
 ```sh
@@ -67,7 +74,7 @@ serializes helper calls only; do not concurrently run the manual root loader.
 Close OBS and other capture applications before diagnostic module reloads.
 Desktop audio services may also keep the ALSA control device open.
 
-Removal:
+Manual removal (keeps the loaded module and preferences):
 
 ```sh
 tools/install-startup.sh --remove-boot

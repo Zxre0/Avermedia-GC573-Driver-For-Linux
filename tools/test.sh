@@ -17,4 +17,4 @@ for test in tests/*_test.c; do
     "$output"
 done
 python3 -m unittest discover -s tests -p '*_test.py'
-for script in tools/*.sh tools/gc573-codex-probe; do bash -n "$script"; done
+for script in ./*.sh tools/*.sh tools/gc573-codex-probe; do bash -n "$script"; done

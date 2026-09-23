@@ -8,11 +8,11 @@ if [[ ${1:-} == --boot || ${1:-} == --remove-boot ]]; then
     if [[ $1 == --remove-boot ]]; then
         exec "$project/tools/run-probe.sh" --remove-boot-startup
     fi
-    "$project/tools/run-probe.sh" --install-boot-startup
     # Avoid a second initialization attempt from the legacy login unit.
     if [[ -f "$units/gc573-native.service" ]]; then
         systemctl --user disable --now gc573-native.service
     fi
+    "$project/tools/run-probe.sh" --install-boot-startup
     printf 'Boot startup enabled. Check: systemctl status gc573-native-boot.service\n'
     exit
 fi
@@ -20,9 +20,11 @@ if [[ $# -gt 1 || ( $# == 1 && $1 != --remove ) ]]; then
     echo "Usage: $0 [--boot|--remove-boot|--remove]" >&2; exit 2
 fi
 if [[ ${1:-} == --remove ]]; then
-    systemctl --user disable --now gc573-native.service
-    rm -f "$units/gc573-native.service"
-    systemctl --user daemon-reload
+    if [[ -e "$units/gc573-native.service" || -L "$units/gc573-native.service" ]]; then
+        systemctl --user disable --now gc573-native.service
+        rm -f "$units/gc573-native.service"
+        systemctl --user daemon-reload
+    fi
     exit
 fi
 "$project/tools/run-probe.sh" --check

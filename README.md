@@ -69,7 +69,81 @@ formats and/or a suitable ×4 connection are needed for those capture modes.
 HDMI passthrough latency requires separate testing; PCIe bandwidth is not a measurement
 of its latency.
 
-## Installation tutorial — CachyOS
+## Easy install and uninstall
+
+Clone or download this repository into a stable directory owned by your normal
+desktop account. With an active **1080p60, RGB 8-bit, SDR** source connected to
+HDMI IN (audio: **48 kHz stereo PCM**), run:
+
+```sh
+git clone https://github.com/Zxre0/Avermedia-GC573-Driver-For-Linux.git gc573-native
+cd gc573-native
+./install.sh
+```
+
+Run the script **without sudo**; it requests sudo for system changes and lets
+the package manager show its normal confirmation prompts. It installs the
+build tools, matching kernel headers, GTK/Python dependencies, video/audio
+utilities and OBS; builds the driver; installs **GC573 Control** in your app
+menu; and enables automatic loading at boot with saved RGB restoration.
+It uses pacman on Arch/CachyOS and apt on Debian/Ubuntu. Hardware testing remains
+limited to CachyOS; Ubuntu compilation in CI is not a hardware test.
+
+You need administrator access through sudo, a running systemd system, internet
+access for missing packages, and exactly one GC573 for automatic discovery.
+Keep your distribution updated. If repository headers no longer match your
+running kernel, update/reboot and rerun the installer. Secure Boot signing is
+not automated. A checkout/home directory unlocked only at login needs the
+[manual login-only setup](#6-load-automatically-after-a-restart).
+
+If dependencies are already installed, or you use another distribution:
+
+```sh
+./install.sh --skip-deps
+```
+
+The installer enables the privileged helper described in
+[step 6](#6-load-automatically-after-a-restart): this trusts the checkout and its
+module with root/kernel execution. Keep the checkout in the same location.
+Installation queues initialization; check its result with
+`systemctl status gc573-native-boot.service --no-pager`. A late HDMI source is
+handled by the startup service. Open **GC573 Control** from the app menu, then
+follow [step 5](#5-configure-obs-video-and-audio) to add video and audio in OBS.
+The installer does not overwrite your OBS scenes or profiles.
+
+To uninstall, close OBS and GC573 Control and run from the same checkout and
+desktop account:
+
+```sh
+./uninstall.sh
+```
+
+This removes **all project installation components**: boot and login services,
+the loaded kernel module, privileged helper and sudoers rule, app launcher and
+menu entry, saved RGB preferences, runtime checkpoints, generated modules/test
+binaries, Python caches, and automatic startup logs. It also works after a
+partial or manual installation. If WirePlumber holds the audio device, removal
+briefly pauses it and restores it afterward; desktop audio may pause. A driver
+still held by another application is not forcibly unloaded: the script exits
+with an error and can be rerun after closing that application.
+
+To keep your lighting preferences instead:
+
+```sh
+./uninstall.sh --keep-settings
+```
+
+Shared distribution packages (including OBS, GTK and kernel headers), OBS
+configuration, recordings, the source checkout, research/test evidence and
+backups are preserved. System journal entries remain under systemd's retention
+policy. The driver is built and loaded from this checkout; it does not install a
+DKMS package or copy a module into `/lib/modules`. Removal does not reset card
+registers. Use the same `XDG_CONFIG_HOME`/`XDG_DATA_HOME` values as at installation
+if you customize these directories.
+
+The complete manual method follows for users who prefer individual steps.
+
+## Manual installation tutorial — CachyOS
 
 ### 1. Install dependencies and matching kernel headers
 
@@ -333,7 +407,10 @@ and raw reports remain local; CI and fake-I/O tests cannot prove HDMI operation.
 See [test evidence](docs/testing.md), [protocol notes](docs/protocol.md),
 [contributing](CONTRIBUTING.md), and the remaining [TODO](TODO.md).
 
-## Uninstall
+## Manual uninstall
+
+For complete removal, use `./uninstall.sh` as described above. To remove the
+components individually while keeping preferences and build files:
 
 If automatic startup and the helper were installed:
 
