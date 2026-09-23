@@ -2,7 +2,7 @@
 /* TX1/TX2 clock, analog setup and bounded RGB8 output from the official driver. */
 #include <linux/errno.h>
 #ifdef __KERNEL__
-#include <linux/array_size.h>
+#include <linux/kernel.h>
 #else
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif

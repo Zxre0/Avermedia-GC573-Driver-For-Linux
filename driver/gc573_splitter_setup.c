@@ -2,7 +2,7 @@
 /* Original register sequence from Windows 0x14004e284, after RX CAOF. */
 #include <linux/errno.h>
 #ifdef __KERNEL__
-#include <linux/array_size.h>
+#include <linux/kernel.h>
 #else
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif

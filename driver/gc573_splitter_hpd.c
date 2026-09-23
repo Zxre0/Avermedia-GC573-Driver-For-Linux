@@ -2,7 +2,7 @@
 /* Bounded cold input path from 50f0f, 4e0d0 and 5071c(1), without IRQ ACKs. */
 #include <linux/errno.h>
 #ifdef __KERNEL__
-#include <linux/array_size.h>
+#include <linux/kernel.h>
 #else
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif

@@ -2,7 +2,7 @@
 /* Fresh-state TX paths: 0x14004fad0, 0x14004ed14, 0x140057158, 0x14004ef50. */
 #include <linux/errno.h>
 #ifdef __KERNEL__
-#include <linux/array_size.h>
+#include <linux/kernel.h>
 #else
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif

@@ -2,7 +2,7 @@
 /* Fresh-start path: 0x14004e5c7 -> 0x140053b2c -> 0x14005071c(0). */
 #include <linux/errno.h>
 #ifdef __KERNEL__
-#include <linux/array_size.h>
+#include <linux/kernel.h>
 #else
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
