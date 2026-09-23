@@ -37,7 +37,8 @@ The hardware attempt completed six activation writes followed by 59 output
 writes with 38 readback checks. TX2 then reported `0x9f`, with `C1=0x08` after
 clearing the output-disable bit. These are electrical/control observations;
 the user subsequently confirmed physical HDMI OUT video on 0.42.0. Output
-audio and latency remain separate validation steps.
+audio and numerical latency remain separate validation steps; the user reports
+very good passthrough latency in use.
 
 Before registering capture, a one-shot helper checks the sink and TX2 controls.
 It preserves an active output without chip writes, initializes the known cold
@@ -66,7 +67,8 @@ Descriptor count, queue payload and clip dimensions follow the selected mode.
 Frame intervals report source timing, and the app reads the measured input rate.
 Stopping video preserves an active audio engine. The worker waits without DMA
 when its expected FPGA input is lost and resumes after that input returns.
-Physical HDMI reconnect, including receiver/splitter relocking, is unverified. Module teardown disables both
+The user confirms signal-loss recovery on the current setup; detailed cable,
+source-power and mode-change coverage remains pending. Module teardown disables both
 engines and drains PCI transactions before releasing DMA allocations; failed
 draining retains memory instead of risking DMA into freed allocations.
 

@@ -9,7 +9,7 @@ On one GC573 with FPGA `20201015`, board `57300102`, CachyOS 7.2.6:
 - V4L2 compliance: 48 passed, zero failures, zero warnings (0.42.0).
 - RGB controls changed rainbow/solid/off while 600 frames streamed at 60 fps.
   The read-only lighting keepalive preserved sequencer control state during a
-  45-second OBS test. This does not establish the visible color appearance.
+  45-second OBS test. The user subsequently confirmed that RGB works great.
 - ALSA stereo 48 kHz, S16_LE: 1800 periods over 18 seconds while video ran two
   successive 300-frame captures. Both streams stopped cleanly; video and audio
   guards remained intact. Audio samples were all zero.
@@ -54,20 +54,28 @@ A subsequent reload reported `passthrough_startup_preserved=1` and
 with no DMA guard failures. OBS was reopened with the user's settings.
 
 The user subsequently confirmed that HDMI OUT video works (2026-09-22,
-0.42.0, current 1080p60 source). Output audio and physical latency were not
-separately confirmed.
+0.42.0, current 1080p60 source). The user also reports very good passthrough
+latency in use; there is no numerical measurement. Output audio is unverified.
 
 The fake harness exercises both ports, 285 transfer failures in TX2 activation
 and output, and 327 failure positions in automatic startup. It checks that TX1
 registers remain unchanged, absent sinks cause no chip writes, and already
 active TX2 output is preserved without reprogramming.
 
+## User confirmation (2026-09-22, 0.42.0)
+
+The user reports that RGB and signal-loss recovery work great and passthrough
+latency is really good. This confirms observed operation on the current setup.
+The exact signal-loss method, individual lighting modes tested, and a numerical
+latency measurement were not supplied. The report does not establish recovery
+for every source resolution or external-display hotplug scenario.
+
 ## Still required
 
 - Known reference stereo HDMI PCM for channel order, source-relative levels and A/V sync.
-- Direct observation of rainbow/solid/off/brightness on the physical LEDs.
 - Full power-off/startup followed by login, rather than a prepared-state restart.
-- HDMI unplug/replug, source mode changes, additional formats and suspend/resume.
+- Documented cable/source-power recovery, source mode changes, additional formats and suspend/resume.
+- HDMI OUT audio and numerical passthrough latency measurement.
 - Independent testing on other boards and kernel distributions.
 
 ## Automated tests

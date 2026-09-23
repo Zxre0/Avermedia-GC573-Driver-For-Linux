@@ -50,11 +50,11 @@ Those are **card specifications**, not features already working in this driver.
 | 720p and lower-rate 1080p | Bounded support implemented; additional source modes need hardware validation |
 | 1080p240 / 1440p144 / 4K60 / HDR | Not implemented; do not select these expecting working native capture |
 | HDMI audio | Stereo S16_LE, 48 kHz; non-silent stereo audio recorded in OBS; channel order and content A/V sync still need a reference test |
-| RGB | Generated rainbow, solid color, off and brightness; controls tested during capture; physical LED appearance needs confirmation |
+| RGB | Generated rainbow, solid color, off and brightness; controls tested during capture; user confirms RGB works great |
 | Control app | Live incoming resolution/rate, signal state, capture/audio state and saved lighting settings |
-| Signal loss | Same-mode queue recovery implemented; physical cable/source-change validation pending |
+| Signal loss | User confirms recovery works in the current setup; detailed cable/source-mode test coverage pending |
 | Automatic startup | Optional user-login service; prepared-state startup verified; full cold-boot validation pending |
-| External HDMI passthrough | 1080p60 HDMI OUT video confirmed by the user on 0.42.0; output audio and latency still need validation |
+| External HDMI passthrough | 1080p60 video confirmed; user reports very good latency; output audio and numerical latency measurement pending |
 | Suspend/resume, compressed or multichannel audio | Not supported |
 
 The driver targets PCI `1461:0054`, subsystem `1461:5730`, FPGA `20201015`, board
@@ -251,7 +251,8 @@ preserves an already enabled TX2. An absent display does not prevent capture.
 The `passthrough_startup_*` status fields describe that startup attempt, not a
 live display check. Automatic output hotplug recovery is not implemented yet.
 
-No end-to-end passthrough latency number has been measured for this driver.
+The user reports very good passthrough latency in use on 0.42.0. No end-to-end
+latency number has been measured for this driver.
 Validation must compare a direct display reference with HDMI OUT at the same
 mode, then repeat with OBS closed and with video/audio capture active.
 
