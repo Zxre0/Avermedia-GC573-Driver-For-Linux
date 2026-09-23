@@ -53,7 +53,7 @@ Those are **card specifications**, not features already working in this driver.
 | RGB | Generated rainbow, solid color, off and brightness; controls tested during capture; user confirms RGB works great |
 | Control app | Live incoming resolution/rate, signal state, capture/audio state and saved lighting settings |
 | Signal loss | User confirms recovery works in the current setup; detailed cable/source-mode test coverage pending |
-| Automatic startup | Optional user-login service; prepared-state startup verified; full cold-boot validation pending |
+| Automatic startup | System boot service with HDMI-lock waits and resumable startup; service start verified; another full reboot with the fix remains pending |
 | External HDMI passthrough | 1080p60 video confirmed; user reports very good latency; output audio and numerical latency measurement pending |
 | Suspend/resume, compressed or multichannel audio | Not supported |
 
@@ -206,31 +206,70 @@ The ALSA device is exclusive: close other programs using it before opening it
 in OBS. For a stable video-device path, use the card's entry in
 `/dev/v4l/by-path/` rather than assuming it will always be `/dev/video0`.
 
-### 6. Optional: automatic startup at login
+### 6. Load automatically after a restart
 
-The development helper intentionally grants the invoking user root/kernel
-execution of this **user-writable checkout and its module**. Enable it only for
-source you trust; it is not a privilege boundary against edits to the project.
+Install the system boot service once, from your normal account in the checkout:
 
 ```sh
 sudo ./tools/enable-unattended-probes.sh
 ./tools/run-probe.sh --check
+./tools/install-startup.sh --boot
+```
+
+The last command enables and starts `gc573-native-boot.service`, and disables
+an older login-only service if installed. The card will initialize at system
+boot, including before desktop login. The service builds the module as the
+checkout owner, loads it through the helper, and restores that account's saved
+RGB settings. Keep this checkout in its current location and install matching
+kernel headers after kernel updates. The checkout and the user's home directory
+must be available at boot; a home directory unlocked only at login requires
+the login-only option below.
+
+The helper grants root/kernel execution of this **user-writable checkout and
+its module**. Enable it only for source you trust. The boot service gives its
+process access to the video/audio groups; it does not add those groups to your
+account globally.
+
+Check startup with:
+
+```sh
+systemctl is-enabled gc573-native-boot.service
+systemctl status gc573-native-boot.service --no-pager
+journalctl -u gc573-native-boot.service -b --no-pager
+```
+
+`active (exited)` is normal: initialization has finished and the kernel driver
+continues running. If the HDMI source is late, startup waits for power and link
+lock, then retries after 10 seconds using a checkpoint from the current boot.
+Keep a supported HDMI source active for initial bring-up. While waiting, the
+service may show `activating (auto-restart)` and the capture device may not yet
+exist. Hardware errors after partial writes stop startup instead of replaying
+resets. The original reboot failure was a transient link loss immediately after
+TX1 activation; startup now waits again at that point.
+
+To restart the service manually after correcting a problem:
+
+```sh
+sudo systemctl restart gc573-native-boot.service
+```
+
+To remove boot startup:
+
+```sh
+./tools/install-startup.sh --remove-boot
+```
+
+For **login-only startup**, remove the boot service first if installed, then:
+
+```sh
 ./tools/install-startup.sh
 systemctl --user start gc573-native.service
 ```
 
-On later desktop logins, the service builds against matching installed headers,
-starts capture through the helper, and restores your saved RGB settings. It
-preserves an already working capture device. It runs at user login, not as a
-pre-login system boot driver. Kernel updates still require matching headers.
-
-```sh
-systemctl --user status gc573-native.service
-journalctl --user -u gc573-native.service -b
-```
-
 See [unattended setup and removal](docs/unattended-probes.md) for the helper's
-exact scope. If you move the checkout, reinstall the helper, app and startup unit.
+scope and troubleshooting. If you move the checkout, reinstall the helper,
+app and selected startup service. The new boot unit has been started successfully;
+a further full reboot with this fix has not yet been tested.
 
 ## Passthrough and latency
 
@@ -299,6 +338,7 @@ See [test evidence](docs/testing.md), [protocol notes](docs/protocol.md),
 If automatic startup and the helper were installed:
 
 ```sh
+./tools/install-startup.sh --remove-boot
 ./tools/install-startup.sh --remove
 sudo ./tools/enable-unattended-probes.sh --remove
 ```

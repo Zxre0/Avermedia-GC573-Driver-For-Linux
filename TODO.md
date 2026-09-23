@@ -9,9 +9,12 @@ separately; an unchecked item has not been demonstrated complete.
   video streams, and saved app settings are restored at login.
 - [x] Confirm physical RGB operation. The user reports that RGB works great
   on 0.42.0 (2026-09-22).
-- [x] Install automatic login startup and portable setup scripts. Prepared-state
-  startup preserves an open working device; builds select the kernel compiler.
-- [ ] Verify startup from a full power cycle. No full reboot performed yet.
+- [x] Install system boot startup with builds as the normal user, saved RGB
+  restoration, bounded HDMI-lock waits and checkpoints for temporary retries.
+  The boot unit is enabled and has started successfully; the old login unit is disabled.
+- [ ] Verify another full reboot/power cycle with the startup fix. The reported
+  reboot exposed transient link loss after TX1 activation; recovery succeeded,
+  and delayed-lock/resume/failure cases now pass startup tests.
 - [x] Implement HDMI audio through dedicated guarded DMA buffers and an ALSA
   stereo 48 kHz S16_LE device. Add GC573 HDMI Audio to the local OBS scene.
   Audio/video run together; either stream can stop/restart independently.

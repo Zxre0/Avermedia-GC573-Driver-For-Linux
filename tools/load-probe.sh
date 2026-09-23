@@ -2,6 +2,13 @@
 set -euo pipefail
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 original_args=("$@")
+# Service installation changes no device registers and needs no built module.
+if [[ ${1:-} == --install-boot-startup || ${1:-} == --remove-boot-startup ]]; then
+    [[ $EUID -eq 0 && $# -eq 2 ]] || { echo 'Use tools/install-startup.sh --boot.' >&2; exit 1; }
+    action=install
+    [[ $1 != --remove-boot-startup ]] || action=remove
+    exec /usr/bin/python3 "$project_dir/tools/install-boot.py" "$action"
+fi
 auto_start=0
 identity_read=0
 i2c_read=0

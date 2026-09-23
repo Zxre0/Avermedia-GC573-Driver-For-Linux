@@ -70,6 +70,21 @@ The exact signal-loss method, individual lighting modes tested, and a numerical
 latency measurement were not supplied. The report does not establish recovery
 for every source resolution or external-display hotplug scenario.
 
+## Reboot startup correction (2026-09-22)
+
+The login unit ran after reboot but stopped at TX1 output preflight with
+`splitter_video_error=-67`, phase 1, and zero chip writes. Activation had
+completed, but RX19 briefly read `0x30` instead of a locked value. A later
+read-only snapshot showed lock again. Continuing TX1 output, receiver output,
+and capture registration restored video and the saved lighting.
+
+Startup now waits after activation and records successful phases in a root-owned,
+boot-specific checkpoint. Tests cover bounded status polling, resumption without
+repeating calibration, stale checkpoints, and refusal to replay partial writes.
+The system boot unit runs before login as the normal user, with temporary signal
+waits retried after 10 seconds. It is enabled and started successfully on the
+current machine. A complete new reboot with the corrected code remains pending.
+
 ## Still required
 
 - Known reference stereo HDMI PCM for channel order, source-relative levels and A/V sync.
