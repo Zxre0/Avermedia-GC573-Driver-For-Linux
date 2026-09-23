@@ -96,7 +96,8 @@ running kernel, update/reboot and rerun the installer. Secure Boot signing is
 not automated. A checkout/home directory unlocked only at login needs the
 [manual login-only setup](#6-load-automatically-after-a-restart).
 
-If dependencies are already installed, or you use another distribution:
+If dependencies are already installed, or you use another distribution, see the
+[non-Arch compilation tutorial](#compiling-on-non-arch-distributions) and then run:
 
 ```sh
 ./install.sh --skip-deps
@@ -344,6 +345,151 @@ See [unattended setup and removal](docs/unattended-probes.md) for the helper's
 scope and troubleshooting. If you move the checkout, reinstall the helper,
 app and selected startup service. The user has confirmed successful automatic
 loading after reboot with this fix. A full power-off/power-on test remains separate.
+
+## Compiling on non-Arch distributions
+
+These instructions cover conventional **Debian/Ubuntu, Fedora and openSUSE**
+installations on an x86_64 PC. Compilation has passed in Ubuntu CI with
+`6.8.0-142-generic` headers; hardware capture has only been tested on CachyOS.
+The commands below do not establish compatibility with every distro/kernel
+release. Older kernels and vendor-patched kernels may need code changes.
+
+Build on the host that contains the PCIe card. A container's kernel headers or
+an immutable distro's development container do not automatically prepare its
+host to load this module. The startup installer requires systemd; the manual
+build itself does not.
+
+### A. Install your distribution's dependencies
+
+Use **one** of the following sets of commands. They install compiler/build
+tools, the control app's GTK4/Python dependencies, diagnostics and OBS.
+
+#### Debian, Ubuntu and Linux Mint
+
+```sh
+sudo apt-get update
+sudo apt-get install build-essential git clang llvm python3 python3-gi \
+  gir1.2-gtk-4.0 kmod sudo util-linux pciutils v4l-utils alsa-utils obs-studio \
+  "linux-headers-$(uname -r)"
+```
+
+Use headers matching the **running** kernel, including its flavor, such as
+`generic`, `lowlatency` or `amd64`. If apt cannot find that exact package, update
+the kernel through your distribution, reboot into it, and retry. For a custom
+kernel, obtain its matching prepared build tree from its provider. See Debian's
+[external-module guidance](https://www.debian.org/doc/manuals/debian-handbook/sect.kernel-compilation.en.html).
+
+#### Fedora Workstation / conventional Fedora installations
+
+```sh
+sudo dnf install gcc make git clang llvm elfutils-libelf-devel openssl-devel \
+  python3 python3-gobject gtk4 kmod sudo util-linux pciutils v4l-utils \
+  alsa-utils obs-studio "kernel-devel-$(uname -r)"
+```
+
+Fedora's matching **`kernel-devel`** package supplies the module build tree;
+`kernel-headers` alone is insufficient. If the running release is no longer
+available in your enabled repositories, update the kernel, reboot, and install
+the matching development package. A debug or custom kernel needs the corresponding
+development package. See [Fedora's kernel-devel description](https://packages.fedoraproject.org/pkgs/kernel/kernel-devel/).
+
+#### openSUSE Tumbleweed / Leap with the default kernel
+
+```sh
+sudo zypper refresh
+sudo zypper install gcc make git clang llvm libelf-devel libopenssl-devel \
+  kernel-devel kernel-default-devel python3 python3-gobject python3-gobject-Gdk \
+  typelib-1_0-Gtk-4_0 libgtk-4-1 kmod sudo util-linux pciutils v4l-utils \
+  alsa-utils obs-studio
+```
+
+This example uses `kernel-default`. Match the installed kernel flavor and
+version with its development packages; reboot into the matching kernel after
+an update. The [SUSE kernel module manual](https://documentation.suse.com/sbp/systems-management/pdf/SBP-KMP-Manual-SLE12SP2_en.pdf)
+explains flavor-specific build dependencies. Package availability varies by
+release and enabled repositories. If OBS is unavailable, install the remaining
+dependencies first and obtain OBS separately through your distribution.
+
+GTK/Python package names above follow the
+[upstream PyGObject installation guide](https://pygobject.gnome.org/getting_started.html).
+For another distro, install equivalent tools and a prepared external-module
+build tree for your running kernel, then continue below.
+
+### B. Check the headers and get the source
+
+```sh
+uname -r
+cat "/lib/modules/$(uname -r)/build/include/config/kernel.release"
+python3 -c "import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk"
+```
+
+The first two commands must report the same kernel release. A missing file or
+mismatch means the kernel development packages need fixing before compilation.
+The Python command should exit successfully without opening a window.
+
+Clone as your normal desktop user into a stable location:
+
+```sh
+git clone https://github.com/Zxre0/Avermedia-GC573-Driver-For-Linux.git gc573-native
+cd gc573-native
+```
+
+If you already downloaded the source, enter that directory instead. All remaining
+commands run from the repository root.
+
+### C. Compile the module
+
+```sh
+./tools/build.sh
+modinfo ".build/modules/$(uname -r)/gc573_native.ko"
+```
+
+Build without sudo. The script uses `/lib/modules/<release>/build`, selects
+Clang/LLVM when the kernel config requires it (otherwise GCC), and saves the
+module under `.build/modules/<release>/gc573_native.ko`. Its `vermagic` must
+begin with your running kernel release. Compilation alone does not load the card.
+If the kernel requires a particular compiler version, install it; for GCC builds,
+you can select an installed compiler using `CC=gcc-14 ./tools/build.sh`, for example.
+
+### D. Load the driver and install the app
+
+Connect an active, unencrypted **1080p60 RGB8 SDR** source to HDMI IN, with
+**48 kHz stereo PCM** audio. Connect the passthrough display before loading if
+you want HDMI OUT, then run:
+
+```sh
+sudo ./tools/load-probe.sh --start
+./tools/install-app.sh
+python3 app/gc573_control.py --status
+```
+
+Look for `capture_error=0` and `capture_video_registered=1` in the loader output.
+Open **GC573 Control** from the application menu and follow the existing
+[OBS video/audio instructions](#5-configure-obs-video-and-audio).
+
+For automatic loading after reboot, follow
+[step 6](#6-load-automatically-after-a-restart). Alternatively, after installing
+the dependencies in section A, `./install.sh --skip-deps` performs sections C/D
+and boot-service installation together. Debian/Ubuntu can also use `./install.sh`
+to install dependencies automatically; Fedora/openSUSE need `--skip-deps`.
+
+### E. Kernel updates and loading errors
+
+After a kernel update, install its matching development packages and boot into
+that kernel. For manual operation, repeat sections C/D. The optional boot service
+rebuilds for the running kernel automatically when the matching headers and
+compiler are available. This project does not provide DKMS or akmods integration.
+
+If loading reports `Key was rejected by service` or a signature/lockdown error,
+follow your distribution's module-signing and key-enrollment procedure. Signing
+is not automated here; every rebuilt module needs signing again, including a
+build made by the boot service. Manual signing once does not make the automatic
+rebuild path ready for a system enforcing signatures.
+
+For build failures, include `uname -r`, `/etc/os-release` and the compiler error
+when reporting an issue. A successful build does not expand the supported video
+modes listed above. To remove the installation, use `./uninstall.sh`, or follow
+the [manual uninstall instructions](#manual-uninstall).
 
 ## Passthrough and latency
 
