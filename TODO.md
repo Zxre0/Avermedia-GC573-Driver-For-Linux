@@ -12,9 +12,9 @@ separately; an unchecked item has not been demonstrated complete.
 - [x] Install system boot startup with builds as the normal user, saved RGB
   restoration, bounded HDMI-lock waits and checkpoints for temporary retries.
   The boot unit is enabled and has started successfully; the old login unit is disabled.
-- [ ] Verify another full reboot/power cycle with the startup fix. The reported
-  reboot exposed transient link loss after TX1 activation; recovery succeeded,
-  and delayed-lock/resume/failure cases now pass startup tests.
+- [x] Verify automatic loading after reboot with the startup fix. The user
+  confirmed it works; delayed-lock/resume/failure cases also pass startup tests.
+- [ ] Verify startup after a full power-off/power-on cycle, separately from reboot.
 - [x] Implement HDMI audio through dedicated guarded DMA buffers and an ALSA
   stereo 48 kHz S16_LE device. Add GC573 HDMI Audio to the local OBS scene.
   Audio/video run together; either stream can stop/restart independently.

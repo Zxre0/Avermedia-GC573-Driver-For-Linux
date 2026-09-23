@@ -83,7 +83,8 @@ boot-specific checkpoint. Tests cover bounded status polling, resumption without
 repeating calibration, stale checkpoints, and refusal to replay partial writes.
 The system boot unit runs before login as the normal user, with temporary signal
 waits retried after 10 seconds. It is enabled and started successfully on the
-current machine. A complete new reboot with the corrected code remains pending.
+current machine. The user subsequently confirmed automatic loading works after
+reboot with the corrected code. Full power-off/power-on testing remains separate.
 
 ## Still required
 

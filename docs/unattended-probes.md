@@ -58,7 +58,8 @@ required before initial capture registration. Matching kernel headers are
 required to build after a kernel update. A missing source can leave the service
 in `activating (auto-restart)`. Hardware/identity/build failures stop the service
 and remain visible in the journal. The boot service has been started on the
-target system; another full reboot with the corrected sequence remains untested.
+target system, and the user has confirmed successful automatic loading after
+reboot with the corrected sequence. A full power-off/power-on test remains separate.
 
 Each invocation saves combined stdout/stderr in `reports/auto-*.log`. Check the
 reported hardware error fields as well as the exit code. The root helper's lock

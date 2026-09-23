@@ -53,7 +53,7 @@ Those are **card specifications**, not features already working in this driver.
 | RGB | Generated rainbow, solid color, off and brightness; controls tested during capture; user confirms RGB works great |
 | Control app | Live incoming resolution/rate, signal state, capture/audio state and saved lighting settings |
 | Signal loss | User confirms recovery works in the current setup; detailed cable/source-mode test coverage pending |
-| Automatic startup | System boot service with HDMI-lock waits and resumable startup; service start verified; another full reboot with the fix remains pending |
+| Automatic startup | System boot service with HDMI-lock waits and resumable startup; user confirms automatic loading after reboot |
 | External HDMI passthrough | 1080p60 video confirmed; user reports very good latency; output audio and numerical latency measurement pending |
 | Suspend/resume, compressed or multichannel audio | Not supported |
 
@@ -268,8 +268,8 @@ systemctl --user start gc573-native.service
 
 See [unattended setup and removal](docs/unattended-probes.md) for the helper's
 scope and troubleshooting. If you move the checkout, reinstall the helper,
-app and selected startup service. The new boot unit has been started successfully;
-a further full reboot with this fix has not yet been tested.
+app and selected startup service. The user has confirmed successful automatic
+loading after reboot with this fix. A full power-off/power-on test remains separate.
 
 ## Passthrough and latency
 
