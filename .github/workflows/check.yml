@@ -1,0 +1,15 @@
+name: Build and tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y build-essential clang llvm linux-headers-generic python3
+      - run: tools/test.sh
+      - name: Compile against installed distribution headers
+        run: |
+          headers=$(find /usr/src -maxdepth 1 -type d -name 'linux-headers-*-generic' | sort -V | tail -1)
+          tools/build.sh "${headers##*/linux-headers-}"

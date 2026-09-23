@@ -1,0 +1,32 @@
+# Local hardware evidence, private captures and proprietary research inputs
+/reports/
+/.reference/
+/.build/
+/docs/bringup-history.md
+/docs/validation.md
+/docs/hardware-notes.md
+/docs/windows-reference.md
+# Generated build products
+*.o
+*.ko
+*.mod
+*.mod.c
+*.cmd
+*.symvers
+modules.order
+Module.symvers
+.tmp_versions/
+__pycache__/
+*.py[cod]
+*.wav
+*.mkv
+*.bgr
+*.log
+
+# Compiler temporary outputs
+*.tmp
+*.o.d
+
+# Editor backups
+*.save
+*~

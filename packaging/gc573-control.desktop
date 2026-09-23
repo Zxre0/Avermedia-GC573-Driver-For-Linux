@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=GC573 Control
+Comment=Manage lighting and view the HDMI input signal
+Exec=gc573-control
+Icon=video-display
+Terminal=false
+Categories=AudioVideo;Settings;

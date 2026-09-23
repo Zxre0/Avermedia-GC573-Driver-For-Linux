@@ -1,0 +1,32 @@
+#!/bin/bash -p
+# Installed root-owned. Module loading necessarily trusts this project's code.
+set -euo pipefail
+export PATH=/usr/bin:/usr/sbin
+if [[ $EUID -ne 0 ]]; then
+    echo 'This helper must be invoked through sudo.' >&2
+    exit 1
+fi
+# These literals are set by the installer, never by the invoking environment.
+project=@PROJECT@
+bdf=@BDF@
+if [[ $# != 1 ]]; then
+    echo 'Expected one probe mode, or --check.' >&2
+    exit 2
+fi
+if [[ $1 == --check ]]; then
+    printf 'GC573 unattended probe access is enabled for %s.\n' "$bdf"
+    exit 0
+fi
+if [[ ! $1 =~ ^--[a-z][a-z0-9-]*$ ]]; then
+    echo 'Invalid probe mode.' >&2
+    exit 2
+fi
+# The project loader validates the mode, module/kernel, exact PCI IDs and binding.
+# A root-owned lock prevents concurrent calls through this helper.
+install -d -o root -g root -m 0700 /run/gc573-codex
+exec 9>/run/gc573-codex/probe.lock
+flock -n 9 || { echo 'Another GC573 probe is running.' >&2; exit 1; }
+cd /
+exec /usr/bin/env -i PATH=/usr/bin:/usr/sbin LANG=C \
+    /usr/bin/bash --noprofile --norc \
+    "$project/tools/load-probe.sh" "$1" "$bdf"
