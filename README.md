@@ -1,6 +1,6 @@
 # GC573 Native — Linux driver and RGB control app
 
-**Made by Astra (OpenAI Codex)**, with hardware testing on the project owner's
+**AI assisted by GPT-6 Astra)**, with hardware testing on the project owner's
 AVerMedia Live Gamer 4K GC573. This is an original native Linux driver and GTK4
 control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
