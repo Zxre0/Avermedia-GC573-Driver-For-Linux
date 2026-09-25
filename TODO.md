@@ -85,15 +85,14 @@ separately; an unchecked item has not been demonstrated complete.
   rechecking source clock before output enable. A changed rate discards the
   pending setup; incomplete writes/transport errors remain stopped. TX1/TX2
   continuation, rate-change and transfer-failure tests pass.
-- [ ] Validate simultaneous **actual 1440p120 input/passthrough and 1080p60 capture**.
-  User reports the 0.45.1 120 Hz test failed. The observed final-link-check stop
-  is addressed in 0.45.2; the live 120 Hz retest remains pending.
-  Version 0.45.3 also protects the first I2C status sample after a missed busy
-  interval stopped the 60 Hz observation run; stale results remain rejected.
-  PS5 1440p59.94 → 1080p59.94 capture passes; actual 120 Hz gameplay
-  and audio at 120 Hz input still need validation. Nonzero PCM at 1440p59.94
-  was observed during live preview with zero audio guard errors.
-- [ ] Validate combined-mode 60↔120 transitions, physical HDMI OUT picture/audio,
+- [x] Validate simultaneous **actual 1440p120 input/passthrough and 1080p60 capture**.
+  On 0.45.3 the user confirmed 120 Hz working, and the driver measured
+  2560×1440 at 119.89 Hz while delivering 1,200 1080p frames in 20 seconds
+  (60.00 fps), with increasing nonzero PCM and intact video/audio DMA guards.
+  The 0.45.1 final-link-check stop is addressed by the 0.45.2 continuation;
+  0.45.3 also protects the first I2C status sample against missed busy intervals.
+- [x] Observe automatic 60→120 recovery in combined mode without a driver reload.
+- [ ] Validate repeated combined-mode 60↔120 transitions, physical HDMI OUT audio,
   cold boot and source/display hotplug. Check latency independently of preview.
 - [x] Build and install a GTK4 desktop app with RGB controls, live measured
   resolution/frame rate, capture/audio state and disconnected/error feedback.

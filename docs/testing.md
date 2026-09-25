@@ -346,3 +346,24 @@ W=1 builds passed for 7.2.6-1-cachyos, cached 7.2.3-1-cachyos and
 6.18.52-1-cachyos-lts. The loaded 7.2.6 build restored HDMI, live scaled capture,
 nonzero audio and saved RGB. The early sample now observes 0 followed by DONE 4.
 Actual 1440p120 input and 60↔120 transitions still need a live retest.
+
+
+## Live PS5 1440p120 confirmation (0.45.3, 2026-09-24)
+
+The user subsequently confirmed that 120 Hz works. A read-only trace captured
+the source switching from 2560×1440 at 59.944 Hz to 119.889 Hz. Both TX paths
+returned to status 0x9f, combined_phase reached 3, and the open preview resumed
+video and audio automatically without a module reload. During the transition,
+-ENOLINK was temporary; both combined and external errors remained zero.
+
+At steady 119.889 Hz input, a 20.0004-second observation counted 1,200 captured
+1920×1080 frames (59.9989 fps). Audio accumulated 3,682,945 additional nonzero
+bytes across 2,000 periods. Capture error, audio prepare error and audio guard
+errors were zero; the video DMA guard remained intact. The receiver measured
+494080–496614 kHz, both TX status values were 0x9f, and SCDC status was 1.
+Saved RGB remained active. The private trace/capture files are not published.
+
+This validates simultaneous 1440p120 passthrough and 1080p60 host capture on
+this PS5/display/Gen2×2 configuration, plus one automatic 60→120 transition.
+Repeated transitions in both directions, cold boot at 120 Hz, physical hotplug,
+output audio, channel order and content-relative A/V sync remain separate checks.

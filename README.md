@@ -49,15 +49,15 @@ Those are **card specifications**, not features already working in this driver.
 | 1080p60 video | Hardware verified in OBS; RGB 8-bit HDMI input → V4L2 BGR24 |
 | 720p and lower-rate 1080p | Bounded support implemented; additional source modes need hardware validation |
 | Full-rate high-resolution capture / HDR | Not implemented; host output remains at most 1080p60 SDR |
-| Hardware scaling | 1440p59.94 input → 1080p59.94 capture and 1080p → 720p verified; independent capture pacing verified at 30 fps |
-| 1440p120 HDMI OUT + 1080p60 capture | Experimental combined mode implemented; actual 1440p120 source validation still pending |
+| Hardware scaling | 1440p119.89 input → 1080p60 capture, 1440p59.94 → 1080p59.94, and 1080p → 720p verified |
+| 1440p120 HDMI OUT + 1080p60 capture | Verified on a PS5 in 0.45.3: 119.89 Hz input, 60 fps capture, nonzero audio; user confirms 120 Hz output |
 | High-rate HDMI OUT | Experimental RGB8 SDR mode: display-matched timings capped at 1080p240, 1440p144 and 4K60; host capture disabled; see limitations below |
 | HDMI audio | Stereo S16_LE, 48 kHz; non-silent stereo audio recorded in OBS; channel order and content A/V sync still need a reference test |
 | RGB | Generated rainbow, solid color, off and brightness; controls tested during capture; user confirms RGB works great |
 | Control app | Live incoming resolution/rate, signal state, capture/audio state and saved lighting settings |
 | Signal loss | User confirms recovery works in the current setup; detailed cable/source-mode test coverage pending |
 | Automatic startup | Loads video/audio devices and RGB without HDMI video; finishes HDMI setup in the background when a supported source arrives |
-| External HDMI passthrough | User confirms 1080p60 and 1440p video; user reports very good latency; output audio and numerical latency measurement pending |
+| External HDMI passthrough | User confirms 1080p60 and 1440p120 video; user reports very good latency; output audio and numerical latency measurement pending |
 | Suspend/resume, compressed or multichannel audio | Not supported |
 
 The driver targets PCI `1461:0054`, subsystem `1461:5730`, FPGA `20201015`, board
@@ -118,11 +118,12 @@ requests are paced before DMA, so unwanted source frames are not transferred
 over PCIe. At 1080p60 BGR24 the video payload is about 373 MB/s; scaling happens
 on the card, rather than receiving full-resolution 1440p120 on the host.
 
-**1440p59.94 input → 1080p59.94 capture is hardware verified.** A 300-frame
-PS5 capture passed with intact DMA guards; the saved image showed the full home
-screen with correct colors. Capture can be closed and reopened. The user also
-confirmed 1440p HDMI passthrough. Actual **1440p120 input/passthrough with 1080p60
-capture remains unverified**; a 60 Hz home-screen test does not establish it.
+**1440p120 HDMI passthrough with 1080p60 capture is hardware verified on a
+PS5 in 0.45.3.** The user confirmed 120 Hz output; the driver measured
+2560×1440 at 119.89 Hz while delivering 1,200 1920×1080 frames over 20 seconds
+(60.00 fps), with nonzero audio and intact video/audio DMA guards. A live
+60→120 transition recovered automatically without reloading the driver.
+1440p59.94 → 1080p59.94 capture and closing/reopening capture were also verified.
 
 Version 0.45.1 fixes the scaled-mode `error -95` stop during format negotiation,
 configures the FPGA for the receiver's dual-pixel DDR output, and restores that
@@ -133,13 +134,13 @@ inactive. Transport failures still stop with a diagnostic error.
 The PS5's 120 Hz mode test failed on 0.45.1: the worker stopped on a late HDMI
 link-ready check and left the internal transmitter at the previous high TMDS
 ratio. Version 0.45.2 adds a checked continuation and remeasures the source
-before resuming. **Successful 120 Hz capture is still awaiting a live test**;
-the transition fix does not by itself establish 120 Hz support.
+before resuming. The subsequent 0.45.3 live retest confirmed working 120 Hz
+input/passthrough and 1080p60 capture.
 Version 0.45.3 also samples I2C status immediately after starting each read to
 avoid missing the short busy interval under CPU load. Stale completion values
 remain rejected.
 
-At 1440p59.94, the live preview also received nonzero 48 kHz stereo PCM with
+At both 1440p59.94 and 1440p119.89, the live preview received nonzero 48 kHz stereo PCM with
 no audio DMA guard errors. Channel order and content-relative A/V synchronization
 still need a reference test.
 
@@ -152,8 +153,8 @@ python3 tools/set-mode.py scaled
 
 The selection is saved for the installed boot service. On a cold start, the
 normal checked HDMI preparation runs first; the service then enables the
-combined profile. Cold boot and source-mode changes in this new mode still
-need hardware validation. Use `python3 tools/set-mode.py capture` to return to
+combined profile. Cold boot, repeated 60↔120 changes and physical hotplug in
+this mode still need broader hardware validation. Use `python3 tools/set-mode.py capture` to return to
 the conservative 1080p source profile.
 
 On PS5, disable HDCP and HDR/VRR, select **1440p**, run **Test 1440p Output**, and
