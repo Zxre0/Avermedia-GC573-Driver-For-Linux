@@ -599,4 +599,15 @@ int gc573_receiver_input(const struct gc573_block_io *io,
 			 struct gc573_edid_result *edid,
 			 struct gc573_ddc_result *ddc,
 			 struct gc573_input_result *result);
+int gc573_splitter_ddc_read(const struct gc573_block_io *io,
+	struct gc573_block_result *r, unsigned int reg);
+int gc573_splitter_ddc_write(const struct gc573_block_io *io,
+	struct gc573_block_result *r, unsigned int reg, unsigned int value);
+
+int gc573_splitter_edid_memory_write(const struct gc573_block_io *io,
+    struct gc573_block_result *r, unsigned int offset, unsigned int value);
+int gc573_splitter_passthrough_rx_read(const struct gc573_block_io *io,
+    struct gc573_block_result *r, unsigned int reg);
+int gc573_splitter_passthrough_rx_write(const struct gc573_block_io *io,
+    struct gc573_block_result *r, unsigned int reg, unsigned int value);
 #endif

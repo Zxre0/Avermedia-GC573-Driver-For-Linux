@@ -216,6 +216,17 @@ def run_gui():
                         self.details.set_text('Waiting for stable HDMI timing…' if values.get('hdmi_phase') == 16
                                               else 'Driver loaded · waiting for supported HDMI input…')
                         self.audio.set_text('HDMI audio · waiting for input')
+                    if values.get('passthrough_only'):
+                        if values.get('external_active'):
+                            self.signal.set_text(f"{values.get('external_width',0)} × {values.get('external_height',0)} · {values.get('external_fps_milli',0)/1000:.2f} Hz (estimate)")
+                            self.details.set_text('HDMI OUT active · experimental SDR passthrough')
+                        elif values.get('external_error'):
+                            self.signal.set_text('HDMI OUT setup stopped')
+                            self.details.set_text(f"Phase {values.get('external_phase',0)} · error {values['external_error']}")
+                        else:
+                            self.signal.set_text('HDMI OUT · waiting for signal')
+                            self.details.set_text('Negotiating the display’s supported modes…')
+                        self.audio.set_text('Passthrough mode · OBS video/audio capture disabled')
                     if values.get('led_error',0):
                         self.message.set_text('The driver reported a lighting error.')
             except OSError:

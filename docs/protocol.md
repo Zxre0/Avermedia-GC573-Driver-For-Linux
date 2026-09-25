@@ -114,3 +114,31 @@ Linux interface references:
 - [V4L2 controls](https://www.kernel.org/doc/html/next/driver-api/media/v4l2-controls.html)
 - [Writing an ALSA driver](https://www.kernel.org/doc/html/next/sound/kernel-api/writing-an-alsa-driver.html)
 - [DMA API](https://www.kernel.org/doc/html/next/core-api/dma-api.html)
+
+## Experimental external high-rate path (0.44.0)
+
+External HDMI OUT is splitter TX2 (I2C 0x36); TX1 feeds the capture receiver.
+The optional passthrough worker owns I2C while host capture/audio readiness stays
+false. It reads at most 512 bytes of display EDID through TX2 DDC in 32-byte chunks,
+filters to display-advertised HDMI 2.0 RGB8 SDR timings, and programs 256 bytes of
+source-facing volatile splitter EDID SRAM at 0x6c (wire address 0xd8). This is not
+EEPROM or firmware programming. HPD is held low and source DDC disabled while
+programming. SRAM offsets 0x7f/0xff are omitted; checksum substitution registers
+C9/CA are written/read back separately, matching observed hardware behavior.
+
+DDC operations save and restore TX controls. Sink bus errors/timeouts use a
+bounded documented abort; upstream I2C failures stop without further writes.
+The SCDC API permits only source-version/TMDS configuration writes and selected
+status reads. Above 340 MHz, TX2 high-ratio/scrambling controls and downstream
+TMDS_CONFIG=3 are configured. TX C0 bits 0x44 did not retain their written values
+before handshake on this board; verification checks the writable 0x02 bit and
+actual downstream configuration instead. Post-enable scrambler/channel-lock
+status is exposed separately from the initial transmitter setup result.
+
+Stable input snapshots precede output reconfiguration. The legacy capture path
+keeps its original format/rate limits. Normal mode switches restore the prior
+source EDID and clear external SCDC, then reinitialize the splitter once to
+reacquire a low-rate source. A failed initialization is not automatically replayed.
+The worker is experimental: monitor replacement, arbitrary source format changes,
+HDR metadata, deep color, VRR, FRL and simultaneous high-rate capture are not
+implemented or validated by this path.

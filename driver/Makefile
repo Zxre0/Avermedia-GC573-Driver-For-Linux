@@ -36,3 +36,7 @@ ccflags-y += -DGC573_SYSFS_BIN_CONST=const
 else
 ccflags-y += -DGC573_SYSFS_BIN_CONST=
 endif
+
+gc573_native-y += gc573_sink.o
+gc573_native-y += gc573_passthrough_edid.o
+gc573_native-y += gc573_passthrough.o

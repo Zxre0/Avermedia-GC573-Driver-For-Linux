@@ -7,12 +7,14 @@
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 #include "gc573_block.h"
+#include "gc573_passthrough.h"
 
 struct video_context {
 	const struct gc573_block_io *io;
 	struct gc573_splitter_video_result *r;
 	unsigned long start;
 	unsigned int port;
+	const struct gc573_passthrough_edid *sink;
 };
 
 static int video_read(struct video_context *c, unsigned int address, unsigned int reg)
@@ -125,8 +127,45 @@ static int video_rx_bank(struct video_context *c, unsigned int bank)
 	return 0;
 }
 
+/* Port-local HDMI 2.0 negotiation from 58830, bounded to the display's EDID.
+ * Sink protocol version and TMDS_CONFIG are read before output enable.
+ */
+static int video_scdc(struct video_context *c)
+{
+	struct gc573_sink_result ddc={0};
+	unsigned int high=c->r->link_khz>340000, value;
+	int ret;
+	if(!c->sink || c->port!=2) return -EINVAL;
+	ret=video_set(c,0x83,8,high ? 8 : 0,8); if(ret) return ret;
+	/* On this GC573 C0 bits 6/2 read as link status during negotiation:
+     * writing 0x77 produced 0x33 before SCDC was configured. Verify the
+     * writable enable bit here, then verify TMDS_CONFIG at the actual sink.
+     */
+	ret=video_set(c,0xc0,0x46,high ? 0x46 : 0,0x02); if(ret) return ret;
+	c->io->sleep_ms(c->io->ctx,50);
+	ret=video_set(c,0x3a,3,0,3); if(ret) return ret;
+	if(!c->sink->scdc) return high ? -EOPNOTSUPP : 0;
+	if(high) {
+		value=0;
+		ret=gc573_sink_scdc(c->io,&ddc,1,0,&value); if(ret) goto done;
+		if(!value) { ret=-EOPNOTSUPP; goto done; }
+		value=1;
+		ret=gc573_sink_scdc(c->io,&ddc,2,1,&value); if(ret) goto done;
+	}
+	value=high ? 3 : 0;
+	ret=gc573_sink_scdc(c->io,&ddc,0x20,1,&value); if(ret) goto done;
+	value=0xff;
+	ret=gc573_sink_scdc(c->io,&ddc,0x20,0,&value);
+	if(!ret && (value&3)!=(high ? 3U : 0U)) ret=-EIO;
+ done:
+	c->r->transactions+=ddc.transactions;
+	c->r->writes_started+=ddc.writes;
+	return ret;
+}
+
 /* Restricted 8-bit RGB HDMI pass-through: 5415c/53e5c/552b8/5836a.
- * Format conversion, scrambling and encrypted input are not handled here.
+ * The display-matched path adds HDMI 2.0 scrambling; format conversion and
+ * encrypted input remain unsupported.
  */
 static int video_output(struct video_context *c)
 {
@@ -163,15 +202,37 @@ static int video_output(struct video_context *c)
 	r->rx13 = r->last.data[0];
 	r->format_valid = 1;
 	if ((r->avi_color & 0x60) || (r->depth & 3) || (r->rx_cf & 0x20) ||
-	    (r->rx13 & 0x13) != 0x13 || r->link_khz >= 150000)
+	    (r->rx13 & 0x13) != 0x13 ||
+			(c->sink ? (r->link_khz > c->sink->max_tmds_khz ||
+						(r->link_khz > 340000 && !c->sink->scdc)) : r->link_khz >= 150000))
 		return -EOPNOTSUPP;
+	if (c->sink) {
+		unsigned char t[16];
+		unsigned int w,h,ht,vt,limit,millihz;
+		for(i=0;i<16;i++) {
+			ret=video_read(c,0x38,0x9b+i); if(ret) return ret;
+			t[i]=r->last.data[0];
+		}
+		w=t[2]|((t[3]&63)<<8); h=t[9]|((t[10]&63)<<8);
+		ht=t[0]|((t[1]&63)<<8); vt=t[7]|((t[8]&63)<<8);
+		if(!w || !h || w>=ht || h>=vt) return -ERANGE;
+		limit=(w==640 && h==480) || (w==720 && (h==480 || h==576)) ? 60 :
+			w==1280 && h==720 ? 120 : w==1920 && h==1080 ? 240 :
+			w==2560 && h==1440 ? 144 : w==3840 && h==2160 ? 60 : 0;
+		millihz=(unsigned long long)r->pixel_khz*1000000/(ht*vt);
+		if(!limit || millihz>limit*1010U) return -EOPNOTSUPP;
+	}
 	r->phase = 8;
 	for (i = 0; i < ARRAY_SIZE(ops); i++) {
-		ret = video_set(c, ops[i][0], ops[i][1], ops[i][2], ops[i][3]);
+		if (c->sink && i == 6)
+			ret = video_scdc(c);
+		else
+			ret = video_set(c, ops[i][0], ops[i][1], ops[i][2], ops[i][3]);
 		if (ret)
 			return ret;
 	}
 	c->io->sleep_ms(c->io->ctx, 100);
+	if (c->sink) { ret=video_scdc(c); if(ret) return ret; }
 	ret = video_read(c, 0x34 + c->port, 3);
 	if (ret)
 		return ret;
@@ -189,17 +250,18 @@ static int video_output(struct video_context *c)
 	return 0;
 }
 
-int gc573_splitter_video_clock(const struct gc573_block_io *io,
+static int video_clock(const struct gc573_block_io *io,
 			       struct gc573_splitter_result *identity,
 			       struct gc573_splitter_link_result *link,
-			       struct gc573_splitter_video_result *r, unsigned int configure, unsigned int port)
+			       struct gc573_splitter_video_result *r, unsigned int configure, unsigned int port,
+                               const struct gc573_passthrough_edid *sink)
 {
-	struct video_context c = { .io = io, .r = r, .port = port };
+	struct video_context c = { .io = io, .r = r, .port = port, .sink = sink };
 	unsigned int i, exponent, initial, count, sum = 0;
 	int ret;
 
 	*r = (struct gc573_splitter_video_result) { 0 };
-	if ((port != 1 && port != 2) || configure > 2 ||
+	if ((port != 1 && port != 2) || configure > 2 || (sink && (port != 2 || !sink->max_tmds_khz || sink->max_tmds_khz > 600000)) ||
 	    !io->time_ms || !io->sleep_ms || !io->wait_write)
 		return -EINVAL;
 	c.start = io->time_ms(io->ctx);
@@ -353,6 +415,16 @@ int gc573_splitter_video_clock(const struct gc573_block_io *io,
 	r->complete = 1;
 	return 0;
 }
+
+int gc573_splitter_video_clock(const struct gc573_block_io *io,
+	struct gc573_splitter_result *identity, struct gc573_splitter_link_result *link,
+	struct gc573_splitter_video_result *r, unsigned int configure, unsigned int port)
+{ return video_clock(io,identity,link,r,configure,port,0); }
+
+int gc573_splitter_video_external(const struct gc573_block_io *io,
+	struct gc573_splitter_result *identity, struct gc573_splitter_link_result *link,
+	struct gc573_splitter_video_result *r, const struct gc573_passthrough_edid *sink)
+{ return sink ? video_clock(io,identity,link,r,2,2,sink) : -EINVAL; }
 
 /* TX2 is the newly observed external sink; TX1 must remain untouched.
  * Called once before capture/audio registration, so the I2C engine is idle.

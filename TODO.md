@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.43.1. Hardware validation and implementation are tracked
+Current driver: 0.44.0. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
@@ -41,7 +41,15 @@ separately; an unchecked item has not been demonstrated complete.
   works great on 0.42.0 (2026-09-22); the exact loss/reconnect method was not specified.
 - [ ] Document separate HDMI cable, source power and resolution-change recovery
   tests, including splitter/receiver relocking.
-- [ ] Implement and validate the advertised 1080p240, 1440p144 and 4K60 modes.
+- [x] Add an experimental HDMI OUT mode with display EDID filtering, up to
+  600 MHz RGB8 SDR output and SCDC configuration; keep host DMA disabled.
+  Live PS5 3840×2160 negotiation reached monitor clock/channel lock and scrambling.
+- [x] Add persistent capture/passthrough selection and checked return to capture.
+- [ ] Validate physical 1440p120/144 and 1080p240 passthrough, output audio, and
+  nominal 4K60 refresh. Correct the high-rate clock estimate before calling it measured 60 Hz.
+- [ ] Implement HDR/deep-color passthrough and validate source/sink hotplug and
+  cold startup in passthrough mode.
+- [ ] Implement and validate native capture at 1080p240, 1440p144 and 4K60.
   Current capture uses RGB24 and a <=150 MHz single-TTL path. The host currently
   negotiates PCIe Gen 2 x2 (upstream maximum x2); high-rate RGB24 exceeds this
   link's capacity. Lower-bandwidth formats and/or a suitable x4 slot are needed.

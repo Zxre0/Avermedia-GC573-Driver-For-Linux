@@ -13,13 +13,14 @@ struct fake {
 	unsigned int cal_mode, setup_mode, finish_mode, force_ab_ca, pulse_delays, rx_bank, cal_running, cal_ready_after, cal_polls;
 	unsigned int tx_mode, ports_mode, all_ports, link_mode, hpd_mode, hpd_polls, lock_after, port_reads, lose_tx_mapping;
 	unsigned int edid_mode, edid_enable_mode, activate_mode, c1_status;
+	unsigned int passthrough_mode;
 	unsigned int video_mode, video_raw, video_setup, selected_port;
 	unsigned char edid[256];
 	unsigned char tx_ports[4][256];
 	unsigned char common[256], rx[4][256];
 	unsigned char timer[3];
 	unsigned long ms;
-	unsigned char chip[2][256], trace[512][3];
+	unsigned char chip[2][256], trace[2048][3];
 };
 
 static unsigned int read_reg(void *ctx, unsigned int offset)
@@ -115,7 +116,9 @@ static void write_reg(void *ctx, unsigned int offset, unsigned int value)
 	if (offset == GC573_BLOCK_COMMAND && value != 0x10) {
 		assert(value == 4 || value == 8);
 		assert(!f->fail_at || f->transactions < f->fail_at);
-		if (f->edid_mode && f->regs[GC573_BLOCK_ADDRESS / 4] == 0xd9) {
+		if (f->passthrough_mode && f->regs[GC573_BLOCK_ADDRESS / 4] == 0xd8) {
+            assert(value == 4 && (f->rx[0][0xc5]&1));
+        } else if (f->edid_mode && f->regs[GC573_BLOCK_ADDRESS / 4] == 0xd9) {
 			assert(value == 8 && f->rx[0][0x4b] == 0xd9);
 			assert(f->regs[GC573_BLOCK_LENGTH / 4] == 4);
 		} else if (f->timing_mode && f->regs[GC573_BLOCK_ADDRESS / 4] >= 0x96) {
@@ -187,11 +190,14 @@ static int wait_io(struct fake *f, unsigned int *status, unsigned int *armed,
 		unsigned int reg = f->regs[GC573_BLOCK_SUBADDR / 4];
 		unsigned int value = f->regs[GC573_BLOCK_TX / 4];
 
-		assert(f->writes < 512);
+		assert(f->writes < 2048);
 		f->trace[f->writes][0] = f->bank;
 		f->trace[f->writes][1] = reg;
 		f->trace[f->writes++][2] = value;
-		if (f->regs[GC573_BLOCK_ADDRESS / 4] == 0x96) {
+		if (f->passthrough_mode && f->regs[GC573_BLOCK_ADDRESS / 4] == 0xd8) {
+            f->edid[reg]=value;
+            f->trace[f->writes-1][0]=0x6c;
+        } else if (f->regs[GC573_BLOCK_ADDRESS / 4] == 0x96) {
 			f->trace[f->writes - 1][0] = 0x4b;
 			if (reg >= 0x11 && reg <= 0x13) {
 				assert(f->timing_mode);

@@ -29,6 +29,35 @@ class StartupTest(TestCase):
             step.assert_not_called()
         self.assertFalse(startup.ready(dict(READY, led_live_divider='0x0003ffff')))
 
+    def test_switch_to_passthrough_does_not_replay_cold_resets(self):
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
+            status.exists.return_value = True
+            status.read_text.return_value = '\n'.join(f'{k}={v}' for k,v in READY.items())
+            startup.initialize(passthrough=True)
+            self.assertEqual([c.args[0] for c in step.call_args_list], ['--passthrough-video'])
+
+    def test_capture_switch_relocks_splitter_and_preserves_prepared_receiver(self):
+        data = dict(READY, passthrough_only='1', external_phase='3', external_error='0')
+        for gpio, phase in [('0x0001fd7c', 9), ('0x0001fd78', 6)]:
+            with self.subTest(gpio=gpio), mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
+                status.exists.return_value = True
+                status.read_text.return_value = '\n'.join(f'{k}={v}' for k,v in data.items())
+                step.side_effect = [{}, {}, {'bar0[0x00000040]': gpio}, READY]
+                startup.initialize()
+                self.assertEqual([c.args[0] for c in step.call_args_list],
+                                 ['--splitter-tx-finish', '--splitter-link-status', '--board-state', '--capture-wait'])
+                self.assertEqual(startup.read_checkpoint()['next'], phase)
+                self.assertTrue(startup.read_checkpoint()['pending'])
+
+    def test_failed_passthrough_is_not_automatically_reset(self):
+        data = dict(READY, passthrough_only='1', external_phase='3', external_error='-110')
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
+            status.exists.return_value = True
+            status.read_text.return_value = '\n'.join(f'{k}={v}' for k,v in data.items())
+            with self.assertRaisesRegex(RuntimeError, 'did not finish'):
+                startup.initialize()
+            step.assert_not_called()
+
     def test_prepared_input_needs_no_chip_resets(self):
         with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step', side_effect=[INPUT, READY]) as step:
             status.exists.return_value = False

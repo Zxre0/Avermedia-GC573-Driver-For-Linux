@@ -169,13 +169,38 @@ def safe_link_race(mode, data):
                 data.get(prefix + '_writes_started') == '0')
 
 
-def initialize():
-    if STATUS.exists() and ready(fields(STATUS.read_text())):
+def initialize(passthrough=False):
+    current = fields(STATUS.read_text()) if STATUS.exists() else {}
+    if ready(current) and bool(number(current, 'passthrough_only')) == passthrough:
         # Keep the guard against reloading an interrupted in-kernel writing
         # phase until that worker has completed; restarting the service is safe.
         if fields(STATUS.read_text()).get('hdmi_ready', '1') == '1':
             clear_checkpoint()
-        print('GC573 native capture and RGB are already ready; preserving the open device.')
+        print('GC573 requested mode and RGB are already loaded; preserving the open device.')
+        return
+    if passthrough and ready(current):
+        step('--passthrough-video', capture_video_registered=1, passthrough_only=1,
+             led_error=0, led_rgb_complete=1)
+        return
+    if not passthrough and number(current, 'passthrough_only'):
+        if number(current, 'external_error') or number(current, 'external_phase') != 3:
+            raise RuntimeError('Passthrough initialization did not finish; inspect diagnostics before switching')
+        # Leaving a high TMDS ratio needs receiver relocking, not just SRAM
+        # restoration. Use the existing checked splitter startup once, then
+        # hand off the established receiver/input sequence to the worker.
+        save_checkpoint(5, pending=True)
+        step('--splitter-tx-finish', splitter_ports_error=0, splitter_ports_tail_complete=1)
+        step('--splitter-link-status', splitter_link_error=0, splitter_link_complete=1)
+        board = step('--board-state')
+        gpio = number(board, 'bar0[0x00000040]')
+        if gpio in (0, 0xffffffff, 0xeeeeeeee):
+            raise RuntimeError('Invalid board state during capture handoff')
+        # GPIO HPD bit 2 means the internal receiver already completed input
+        # setup; its DDC preflight deliberately forbids repeating that phase.
+        save_checkpoint(9 if gpio & 4 else 6, pending=True)
+        step('--capture-wait', capture_error=0, capture_video_registered=1,
+             led_error=0, led_rgb_complete=1, hdmi_deferred=1)
+        print('Capture devices restored; HDMI is reacquiring the 1080p signal.')
         return
     data = step('--fpga-status')
     if not input_ready(data):
@@ -196,8 +221,12 @@ def initialize():
                 # Devices and RGB are independent of the source. The module
                 # continues the remaining phases without unloading open nodes.
                 save_checkpoint(index, pending=True)
-                step('--capture-wait', capture_error=0, capture_video_registered=1,
-                     led_error=0, led_rgb_complete=1, hdmi_deferred=1)
+                if passthrough:
+                    step('--passthrough-video', capture_video_registered=1, passthrough_only=1,
+                         led_error=0, led_rgb_complete=1)
+                else:
+                    step('--capture-wait', capture_error=0, capture_video_registered=1,
+                         led_error=0, led_rgb_complete=1, hdmi_deferred=1)
                 print('GC573 devices and RGB are ready; HDMI setup continues in the background.')
                 return
             mode, expected = PHASES[index]
@@ -210,15 +239,20 @@ def initialize():
                     raise WaitingForSignal('HDMI link changed before output setup') from exc
                 raise
             save_checkpoint(index + 1)
-    step('--capture-video', capture_error=0, capture_video_registered=1,
-         led_error=0, led_rgb_complete=1)
+    if passthrough:
+        step('--passthrough-video', capture_video_registered=1, passthrough_only=1,
+             led_error=0, led_rgb_complete=1)
+    else:
+        step('--capture-video', capture_error=0, capture_video_registered=1,
+             led_error=0, led_rgb_complete=1)
     clear_checkpoint()
     print('GC573 native capture and RGB lighting are ready.')
 
 
 if __name__ == '__main__':
+    passthrough = len(sys.argv) == 3 and sys.argv[1] == '--passthrough'
     handoff = len(sys.argv) == 3 and sys.argv[1] == '--handoff-phase'
-    if os.geteuid() != 0 or (len(sys.argv) != 2 and not handoff):
+    if os.geteuid() != 0 or (len(sys.argv) != 2 and not handoff and not passthrough):
         sys.exit('Use the installed GC573 helper with --start.')
     try:
         import re
@@ -236,7 +270,7 @@ if __name__ == '__main__':
                 raise RuntimeError('No checked deferred startup handoff')
             print(checkpoint['next'])
         else:
-            initialize()
+            initialize(passthrough=passthrough)
     except WaitingForSignal as exc:
         print(f'GC573 startup waiting: {exc} (temporary, exit 75).', file=sys.stderr)
         sys.exit(75)

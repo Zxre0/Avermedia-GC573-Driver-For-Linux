@@ -171,3 +171,36 @@ installation order, absent login units, repeatable removal, busy-module refusal,
 WirePlumber restoration on failure, settings retention, symlink targets and
 preservation of recordings/backups. They do not uninstall the working test PC or
 claim a fresh installation on every supported package manager.
+
+## Experimental high-rate HDMI OUT (0.44.0, 2026-09-24)
+
+Test platform: CachyOS, kernel `7.2.6-1-cachyos`, the same GC573 and PS5 with
+HDCP disabled. The external display supplied 512 bytes of checksum-valid EDID.
+Filtering retained 1440p120/144 detailed timings and CTA 4K60, limited to RGB8
+SDR and at most 600 MHz. DisplayID-only/HDMI 2.1 modes were excluded.
+
+Live source-facing SRAM programming verified all 254 data bytes. The two EDID
+checksum slots read zero on this board; verified receiver C9/CA registers supply
+the source-visible checksums. The PS5 changed to 3840×2160. TX2 output setup
+completed, downstream SCDC TMDS_CONFIG read back 3, scrambler status read 1,
+and sink status 0x4f reported clock detection and all three channel locks.
+These observations prove negotiation/link status, not physical picture quality,
+HDMI audio, numerical latency or game refresh. The clock estimate was roughly
+545–549 MHz / 55 Hz instead of nominal 594 MHz / 60 Hz; its accuracy is unresolved.
+1440p120 gameplay and 1080p240 have not been exercised.
+
+A high-to-low switch required the checked splitter RX/TX startup sequence after
+restoring the original source EDID. The existing internal receiver HPD GPIO bit
+selects whether to preserve its prepared input or perform cold input setup.
+The corrected mode switch reached HDMI phase 19, 1920×1080 at 59.944 fps, and
+captured 60 V4L2 frames. A subsequent three-second stereo 48 kHz recording
+contained nonzero PCM samples (peak 1444/32768). The final kernel build and full
+C sanitizer suite passed, along with 38 Python tests and shell syntax checks.
+No full PC reboot or physical unplug test was performed.
+
+New fake-I/O tests cover external DDC reads, checksum/length rejection, EDID
+filtering, SCDC, approximately 498/595 MHz output paths, source SRAM readback,
+mode observation and return-profile restoration. Transfer failures stop at the
+injected transaction; an unknown controller state prevents restoration writes.
+The existing capture/HDMI tests remain in the full sanitizer suite. Python tests
+cover both receiver handoff paths and refusal to reset a failed passthrough phase.

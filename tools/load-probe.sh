@@ -10,12 +10,14 @@ if [[ ${1:-} == --install-boot-startup || ${1:-} == --remove-boot-startup ]]; th
     exec /usr/bin/python3 "$project_dir/tools/install-boot.py" "$action"
 fi
 auto_start=0
+auto_passthrough=0
 identity_read=0
 i2c_read=0
 layout_read=0
 block_read=0
 video_capture=0
 hdmi_deferred=0
+passthrough_only=0
 frame_capture=0
 fpga_read=0
 board_read=0
@@ -44,6 +46,8 @@ splitter_tx_port=1
 splitter_ddc=0
 splitter_edid=0
 splitter_hpd=0
+capture_profile=0
+sink_read=0
 splitter_link=0
 splitter_tail=0
 splitter_all=0
@@ -55,6 +59,10 @@ splitter_cal=0
 splitter_map=0
 splitter_timing=0
 case ${1:-} in
+    --capture-profile) identity_read=1; capture_profile=1; shift ;;
+    --start-passthrough) identity_read=1; auto_start=1; auto_passthrough=1; shift ;;
+    --passthrough-video) identity_read=1; video_capture=1; passthrough_only=1; shift ;;
+    --sink-edid) identity_read=1; sink_read=1; shift ;;
     --start) identity_read=1; auto_start=1; shift ;;
     --capture-video) identity_read=1; video_capture=1; shift ;;
     --capture-wait) identity_read=1; video_capture=1; hdmi_deferred=1; shift ;;
@@ -110,7 +118,7 @@ if [[ $# -gt 1 || ! "$bdf" =~ ^[[:xdigit:]]{4}:[[:xdigit:]]{2}:[[:xdigit:]]{2}\.
     printf 'Invalid arguments received:' >&2
     printf ' %q' "${original_args[@]}" >&2
     printf '\nExpected one mode followed by an optional PCI address.\n' >&2
-    echo "Usage: $0 [--start|--identity|--i2c-id|--i2c-layout|--block-id|--board-state|--fpga-status|--capture-once|--capture-video|--gpio-prepare|--receiver-id|--receiver-status|--receiver-video|--receiver-output|--receiver-write-test|--receiver-init|--receiver-calibrate|--receiver-clock|--receiver-timing|--receiver-edid-read|--receiver-edid-configure|--receiver-input|--splitter-id|--splitter-startup|--splitter-prepare|--splitter-clock|--splitter-timing|--splitter-map|--splitter-rx-calibrate|--splitter-rx-setup|--splitter-rx-finish|--splitter-tx-prepare|--splitter-tx-ports|--splitter-tx-initialize|--splitter-tx-finish|--splitter-link-status|--splitter-input|--splitter-edid-read|--splitter-edid-enable|--splitter-port1-activate|--splitter-port1-clock|--splitter-port1-setup|--splitter-port1-output|--splitter-port2-activate|--splitter-port2-output] [PCI-address]" >&2
+    echo "Usage: $0 [--capture-profile|--start-passthrough|--passthrough-video|--sink-edid|--start|--identity|--i2c-id|--i2c-layout|--block-id|--board-state|--fpga-status|--capture-once|--capture-video|--gpio-prepare|--receiver-id|--receiver-status|--receiver-video|--receiver-output|--receiver-write-test|--receiver-init|--receiver-calibrate|--receiver-clock|--receiver-timing|--receiver-edid-read|--receiver-edid-configure|--receiver-input|--splitter-id|--splitter-startup|--splitter-prepare|--splitter-clock|--splitter-timing|--splitter-map|--splitter-rx-calibrate|--splitter-rx-setup|--splitter-rx-finish|--splitter-tx-prepare|--splitter-tx-ports|--splitter-tx-initialize|--splitter-tx-finish|--splitter-link-status|--splitter-input|--splitter-edid-read|--splitter-edid-enable|--splitter-port1-activate|--splitter-port1-clock|--splitter-port1-setup|--splitter-port1-output|--splitter-port2-activate|--splitter-port2-output] [PCI-address]" >&2
     exit 2
 fi
 kernel_release=$(uname -r)
@@ -393,9 +401,22 @@ if [[ -d /sys/module/gc573_native && !( "$identity_read" == 1 && "$existing_driv
     echo "gc573_native is already loaded; refusing to affect another device." >&2
     exit 1
 fi
+for entry in "$sink_read:probe_sink" "$capture_profile:restore_capture_profile" "$passthrough_only:passthrough_only"; do
+    if [[ ${entry%%:*} == 1 ]] && [[ "$(modinfo -p "$module")" != *"${entry#*:}:"* ]]; then
+        echo 'Rebuild the module for the requested HDMI mode.' >&2; exit 1
+    fi
+done
 if [[ $EUID -ne 0 ]]; then
     echo "Preflight passed. Loading a kernel module requires root. Run in your terminal:" >&2
-    if [[ "$splitter_video_output" == 1 ]]; then
+    if [[ "$capture_profile" == 1 ]]; then
+        printf 'sudo %q --capture-profile %q\n' "$0" "$bdf" >&2
+    elif [[ "$passthrough_only" == 1 ]]; then
+        printf 'sudo %q --passthrough-video %q\n' "$0" "$bdf" >&2
+    elif [[ "$auto_passthrough" == 1 ]]; then
+        printf 'sudo %q --start-passthrough %q\n' "$0" "$bdf" >&2
+    elif [[ "$sink_read" == 1 ]]; then
+        printf 'sudo %q --sink-edid %q\n' "$0" "$bdf" >&2
+    elif [[ "$splitter_video_output" == 1 ]]; then
         printf 'sudo %q --splitter-port%s-output %q\n' "$0" "$splitter_tx_port" "$bdf" >&2
     elif [[ "$splitter_video_setup" == 1 ]]; then
         printf 'sudo %q --splitter-port1-setup %q\n' "$0" "$bdf" >&2
@@ -475,6 +496,9 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 if [[ "$auto_start" == 1 ]]; then
+    if [[ "$auto_passthrough" == 1 ]]; then
+        exec /usr/bin/python3 "$project_dir/tools/start-capture.py" --passthrough "$bdf"
+    fi
     exec /usr/bin/python3 "$project_dir/tools/start-capture.py" "$bdf"
 fi
 hdmi_phase=0
@@ -492,7 +516,7 @@ if [[ "$identity_read" == 1 ]]; then
         rmmod gc573_native
     fi
     if [[ "$video_capture" == 1 ]]; then
-        insmod "$module" "target_bdf=$bdf" read_offsets=0 capture_video=1 "hdmi_start_phase=$hdmi_phase"
+        insmod "$module" "target_bdf=$bdf" read_offsets=0 capture_video=1 "hdmi_start_phase=$hdmi_phase" "passthrough_only=$passthrough_only"
     elif [[ "$frame_capture" == 1 ]]; then
         insmod "$module" "target_bdf=$bdf" read_offsets=0 capture_once=1
     elif [[ "$fpga_read" == 1 ]]; then
@@ -515,6 +539,10 @@ if [[ "$identity_read" == 1 ]]; then
         insmod "$module" "target_bdf=$bdf" read_offsets=0 probe_splitter_edid=1
     elif [[ "$splitter_hpd" == 1 ]]; then
         insmod "$module" "target_bdf=$bdf" read_offsets=0 request_splitter_hpd=1
+    elif [[ "$capture_profile" == 1 ]]; then
+        insmod "$module" "target_bdf=$bdf" read_offsets=0 restore_capture_profile=1
+    elif [[ "$sink_read" == 1 ]]; then
+        insmod "$module" "target_bdf=$bdf" read_offsets=0 probe_sink=1
     elif [[ "$splitter_link" == 1 ]]; then
         insmod "$module" "target_bdf=$bdf" read_offsets=0 probe_splitter_link=1
     elif [[ "$splitter_tail" == 1 ]]; then
@@ -673,7 +701,9 @@ fi
 if [[ "$gpio_prepare" == 1 ]]; then
     echo "If set, GPIO bit 0x08 remains set after unload; no new I2C request was issued."
 fi
-if [[ "$video_capture" == 1 ]]; then
+if [[ "$passthrough_only" == 1 ]]; then
+    echo "Experimental HDMI OUT mode loaded; OBS video/audio capture disabled. Inspect external_error."
+elif [[ "$video_capture" == 1 ]]; then
     echo "Native V4L2 capture mode loaded; inspect capture_error and LED status above."
 else
     echo "Diagnostic module loaded. To release the card: sudo rmmod gc573_native"

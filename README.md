@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.43.1 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.44.0 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -48,7 +48,8 @@ Those are **card specifications**, not features already working in this driver.
 | --- | --- |
 | 1080p60 video | Hardware verified in OBS; RGB 8-bit HDMI input → V4L2 BGR24 |
 | 720p and lower-rate 1080p | Bounded support implemented; additional source modes need hardware validation |
-| 1080p240 / 1440p144 / 4K60 / HDR | Not implemented; do not select these expecting working native capture |
+| High-rate native capture / HDR | Not implemented; use 1080p60 SDR for OBS |
+| High-rate HDMI OUT | Experimental RGB8 SDR mode: display-matched timings capped at 1080p240, 1440p144 and 4K60; host capture disabled; see limitations below |
 | HDMI audio | Stereo S16_LE, 48 kHz; non-silent stereo audio recorded in OBS; channel order and content A/V sync still need a reference test |
 | RGB | Generated rainbow, solid color, off and brightness; controls tested during capture; user confirms RGB works great |
 | Control app | Live incoming resolution/rate, signal state, capture/audio state and saved lighting settings |
@@ -68,6 +69,53 @@ link's theoretical payload capacity before PCIe transaction overhead. Lower-band
 formats and/or a suitable ×4 connection are needed for those capture modes.
 HDMI passthrough latency requires separate testing; PCIe bandwidth is not a measurement
 of its latency.
+
+## Experimental high-rate HDMI passthrough (0.44.0)
+
+HDMI OUT can now use a separate **RGB 8-bit SDR passthrough mode**. It reads your
+connected monitor's EDID and advertises supported timings within the GC573's
+HDMI 2.0 limits. It enables SCDC scrambling and the high-speed clock ratio above
+340 MHz. Passthrough bypasses host capture, so PCIe ×2 does not impose the
+1080p capture limit on HDMI OUT.
+
+**OBS video and ALSA capture are disabled in this mode**, including when the
+source sends 1080p. There is no high-rate-to-1080p downscaler implemented. RGB
+controls remain available. Close OBS and other capture applications, then run
+as your normal desktop user after installing the helper:
+
+```sh
+python3 tools/set-mode.py passthrough
+```
+
+This builds/loads the driver and saves the mode for the installed boot/login
+service. It briefly stops and restores WirePlumber when necessary to release
+the ALSA device. HDMI negotiation continues in the background. To restore the
+normal 1080p60 OBS video/audio mode and its boot preference:
+
+```sh
+python3 tools/set-mode.py capture
+```
+
+Keep the display connected to **HDMI OUT** and the console connected to **HDMI IN**.
+For PS5, keep HDCP disabled, use SDR with HDR/VRR off, select 1440p, run the console's
+1440p output test, and enable 120 Hz output. A compatible game must actually request
+120 Hz; the console menu alone is not a 120 Hz test. The source chooses the mode;
+the driver does not control console settings. See Sony's
+[PS5 video-output guide](https://www.playstation.com/en-ca/support/hardware/ps5-4k-resolution-guide/).
+
+On the test display, the filtered EDID includes **1440p120, 1440p144 and 4K60**.
+The PS5 selected 3840×2160, and the monitor reported clock/channel lock and active
+scrambling. **Physical high-rate picture/audio and 1440p120 gameplay are not yet
+user-verified.** The clock-derived refresh estimate reads approximately 55 Hz
+for the nominal 4K60 mode and needs correction; do not treat it as verified 60 Hz.
+
+Limitations: HDR, deep color, YCbCr, HDMI 2.1 FRL, DSC and VRR are not advertised.
+Only supported CTA modes and EDID detailed timings are retained; DisplayID-only
+modes are not converted. 1080p240 requires a display-advertised timing within
+600 MHz and has not been tested. This display's DisplayID 1080p240 timing exceeds
+600 MHz, so it is excluded. Monitor replacement, suspend/resume and cold boot in
+passthrough mode still need hardware validation. If initialization reports an
+error, inspect diagnostics before retrying; failed hardware writes are not replayed.
 
 ## Easy install and uninstall
 

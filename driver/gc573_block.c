@@ -369,7 +369,7 @@ static int gc573_block_write_address(const struct gc573_block_io *io,
 	*result = (struct gc573_block_result) { 0 };
 	if (subaddr > 0xff || value > 0xff || !io->wait_write ||
 	    (address != 0x90 && address != 0x58 && address != 0x96 && address != 0x70 &&
-	     address != 0x68 && address != 0x6a && address != 0x6c && address != 0x6e))
+	     address != 0x68 && address != 0x6a && address != 0x6c && address != 0x6e && address != 0xd8))
 		return -EINVAL;
 	result->initial_status = io->read(io->ctx, GC573_BLOCK_STATUS);
 	result->initial_divider = io->read(io->ctx, GC573_BLOCK_DIVIDER);
@@ -793,7 +793,7 @@ int gc573_splitter_video_tx_read(const struct gc573_block_io *io,
 	if (port != 1 && port != 2)
 		return -EINVAL;
 	if (reg != 1 && reg != 3 && reg != 6 && reg != 7 && (reg < 0x10 || reg > 0x15) &&
-	    reg != 0x18 && reg != 0x1a && (reg < 0x84 || reg > 0x8b) && reg != 0x91 &&
+	    reg != 0x18 && reg != 0x1a && reg != 0x3a && (reg < 0x83 || reg > 0x8b) && reg != 0x91 &&
 	    reg != 0x94 && reg != 0xaf && (reg < 0xc0 || reg > 0xc3))
 		return -EINVAL;
 	return gc573_block_identify_state(io, r, 0, reg, 1, 0x69 + 2 * port);
@@ -807,7 +807,7 @@ int gc573_splitter_video_tx_write(const struct gc573_block_io *io,
 	if (port != 1 && port != 2)
 		return -EINVAL;
 	if (reg != 1 && reg != 7 && (reg < 0x10 || reg > 0x15) && reg != 0x18 &&
-	    reg != 0x1a && reg != 0x84 && reg != 0x85 && (reg < 0x87 || reg > 0x8b) &&
+	    reg != 0x1a && reg != 0x3a && reg != 0x83 && reg != 0x84 && reg != 0x85 && (reg < 0x87 || reg > 0x8b) &&
 	    reg != 0x91 && reg != 0x94 && reg != 0xaf && (reg < 0xc0 || reg > 0xc3))
 		return -EINVAL;
 	return gc573_block_write_address(io, r, reg, value, 0x68 + 2 * port);
@@ -817,7 +817,56 @@ int gc573_splitter_video_rx_read(const struct gc573_block_io *io,
 				struct gc573_block_result *r, unsigned int reg)
 {
 	*r = (struct gc573_block_result) { 0 };
-	if (reg != 0x98 && reg != 0x0f && reg != 0x15 && reg != 0xcf && reg != 0x13)
+	if (reg != 0x98 && reg != 0x0f && reg != 0x15 && reg != 0xcf && reg != 0x13 &&
+		(reg < 0x9b || reg > 0xaa))
 		return -EINVAL;
 	return gc573_block_identify_state(io, r, 0, reg, 1, 0x71);
+}
+
+/* External TX2 DDC engine only; EDID reads and HDMI 2.0 SCDC only. */
+int gc573_splitter_ddc_read(const struct gc573_block_io *io,
+                           struct gc573_block_result *r, unsigned int reg)
+{
+	*r = (struct gc573_block_result) { 0 };
+	if (reg != 3 && reg != 0x19 && reg != 0x1d && (reg < 0x28 || reg > 0x30))
+		return -EINVAL;
+	return gc573_block_identify_state(io, r, 0, reg, 1, 0x6d);
+}
+int gc573_splitter_ddc_write(const struct gc573_block_io *io,
+							struct gc573_block_result *r, unsigned int reg, unsigned int value)
+{
+	*r = (struct gc573_block_result) { 0 };
+	if (reg != 0x19 && reg != 0x1d && (reg < 0x28 || reg > 0x2e) && reg != 0x30)
+		return -EINVAL;
+	if (value > 255 || (reg == 0x29 && value != 0xa0 && value != 0xa8) ||
+		(reg == 0x2e && value != 9 && value != 3 && value != 15 && value != 0 && value != 1))
+		return -EINVAL;
+	return gc573_block_write_address(io, r, reg, value, 0x6c);
+}
+
+int gc573_splitter_edid_memory_write(const struct gc573_block_io *io,
+                                     struct gc573_block_result *r, unsigned int offset, unsigned int value)
+{
+	*r = (struct gc573_block_result) { 0 };
+	if (offset > 255 || value > 255) return -EINVAL;
+	return gc573_block_write_address(io,r,offset,value,0xd8);
+}
+
+int gc573_splitter_passthrough_rx_read(const struct gc573_block_io *io,
+                                      struct gc573_block_result *r, unsigned int reg)
+{
+	*r=(struct gc573_block_result){0};
+	if(reg!=15 && reg!=0x15 && reg!=0x98 && (reg<0x9b || reg>0xaa) &&
+       reg!=0xab && reg!=0xac && reg!=0x26 && reg!=0x55 && reg!=0x34 &&
+       (reg<0xc5 || reg>0xca)) return -EINVAL;
+	return gc573_block_identify_state(io,r,0,reg,1,0x71);
+}
+int gc573_splitter_passthrough_rx_write(const struct gc573_block_io *io,
+                                       struct gc573_block_result *r, unsigned int reg, unsigned int value)
+{
+	*r=(struct gc573_block_result){0};
+	if(reg!=15 && reg!=0xab && reg!=0xac && reg!=0x26 && reg!=0x55 && reg!=0x34 &&
+       (reg<0xc5 || reg>0xca)) return -EINVAL;
+	if(value>255 || (reg==15 && value!=0 && value!=2 && value!=3)) return -EINVAL;
+	return gc573_block_write_address(io,r,reg,value,0x70);
 }
