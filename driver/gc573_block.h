@@ -31,6 +31,8 @@ struct gc573_block_io {
 	void (*sleep_ms)(void *ctx, unsigned int milliseconds);
 	int (*wait_write)(void *ctx, unsigned int *status, unsigned int *saw_clear);
 	unsigned long (*time_ms)(void *ctx);
+	/* Optional runtime gate: no capture/audio accesses until HDMI setup ends. */
+	int (*ready)(void *ctx);
 };
 
 struct gc573_gpio_result {

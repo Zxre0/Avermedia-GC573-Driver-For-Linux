@@ -1737,7 +1737,7 @@ int main(void)
 		case 4: f.tx_ports[1][0x84] = 0x84; break;
 		case 5: f.tx_ports[1][0x86] = 8; break;
 		}
-		assert(run_activate(&f, &hpd) == -EOPNOTSUPP && !f.writes);
+		assert(run_activate(&f, &hpd) == (i < 3 ? -ENOLINK : -EOPNOTSUPP) && !f.writes);
 	}
 	f = activate_baseline();
 	f.slow_at = 38;
@@ -1936,7 +1936,7 @@ int main(void)
 		f = activate_baseline();
 		f.selected_port = 2;
 		f.tx_ports[2][3] = 0x14;
-		assert(run_activate(&f, &hpd) == -EOPNOTSUPP && !f.writes);
+		assert(run_activate(&f, &hpd) == -ENOLINK && !f.writes);
 		f = video_baseline();
 		f.selected_port = 2;
 		f.tx_ports[2][3] = 0x14;

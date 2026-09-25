@@ -96,6 +96,32 @@ reboot with the corrected code. Full power-off/power-on testing remains separate
 
 ## Automated tests
 
+### Deferred HDMI startup (0.43.0, 2026-09-24)
+
+On the CachyOS 7.2.6 test PC, the new module registered `/dev/video0`, the
+`GC573` ALSA card and RGB controls while FPGA input reported zero presence,
+width and height. At that point `capture_started=0`, `capture_error=0`,
+`hdmi_ready=0` and `audio_registered=1`. The worker then finished HDMI setup
+(`hdmi_phase=19`, `hdmi_ready=1`, `hdmi_error=0`) and acquired 1080p60 without
+reloading the module. The source was connected during this test; it validates
+registration before video acquisition, not a fresh boot with the cable unplugged.
+
+After acquisition, 120 V4L2 frames and 300 concurrent ALSA periods completed
+with intact guards. The three-second PCM recording contained silence; this
+test does not add a new claim of audible content. V4L2 compliance passed
+48/48 with zero warnings. The boot service returned `active (exited)` and the
+saved solid-green lighting was restored.
+
+The real protocol fake tests cover repeated absent-source and receiver-power
+waits without chip writes, later lock acquisition, recognized powered-TX
+preservation, geometry waits, and failure injection across TX/RX output
+transactions. A failed writing phase cannot replay itself. Python tests cover
+cold-prefix handoff before any HDMI wait and service restart preserving a loaded
+device while input is absent. A fresh physical unplugged boot and later cable
+connection remain a separate hardware test.
+
+### Test commands
+
 `tools/test.sh` runs the C protocol harnesses with AddressSanitizer and
 UndefinedBehaviorSanitizer, Python unit tests and shell syntax checks. The fake
 I/O harnesses exercise failure at transfer boundaries, stale completion flags,

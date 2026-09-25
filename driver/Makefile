@@ -18,6 +18,7 @@ gc573_native-y += gc573_led.o
 
 gc573_native-y += gc573_receiver_audio.o
 gc573_native-y += gc573_audio.o
+gc573_native-y += gc573_hdmi.o
 
 # VB2 moved queue wait locking into the core in newer kernels.
 ifneq ($(shell grep -F 'void (*wait_prepare)' $(srctree)/include/media/videobuf2-core.h),)

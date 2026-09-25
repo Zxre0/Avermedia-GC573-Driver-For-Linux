@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.42.0. Hardware validation and implementation are tracked
+Current driver: 0.43.0. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
@@ -15,6 +15,10 @@ separately; an unchecked item has not been demonstrated complete.
 - [x] Verify automatic loading after reboot with the startup fix. The user
   confirmed it works; delayed-lock/resume/failure cases also pass startup tests.
 - [ ] Verify startup after a full power-off/power-on cycle, separately from reboot.
+- [x] Register capture/audio devices and RGB before HDMI input is available;
+  finish checked HDMI startup in the background without reloading the module.
+  Hardware registration with zero FPGA input followed by 1080p60 acquisition passed.
+- [ ] Verify a fresh boot with HDMI physically unplugged, then connect the source.
 - [x] Implement HDMI audio through dedicated guarded DMA buffers and an ALSA
   stereo 48 kHz S16_LE device. Add GC573 HDMI Audio to the local OBS scene.
   Audio/video run together; either stream can stop/restart independently.

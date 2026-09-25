@@ -51,6 +51,7 @@ sudo "$project/tools/enable-unattended-probes.sh"
 "$project/tools/install-app.sh"
 "$project/tools/install-startup.sh" --boot
 printf '\nInstallation complete; boot startup has been queued.\n'
+printf 'The driver and RGB controls load without HDMI input; capture starts when a supported source is ready.\n'
 printf 'Open GC573 Control from your application menu. Connect an active 1080p60 RGB8 SDR HDMI source.\n'
 printf 'Check initialization: systemctl status gc573-native-boot.service --no-pager\n'
 printf 'OBS video/audio setup is in README.md, step 5. Keep this checkout in its current location.\n'

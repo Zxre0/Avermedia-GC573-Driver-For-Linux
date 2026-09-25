@@ -73,30 +73,19 @@ class StartupTest(TestCase):
         self.assertEqual(step.call_count, 10)
         self.assertTrue(all(c.args[0] == '--splitter-link-status' for c in step.call_args_list))
 
-    def test_link_race_resumes_output_without_replaying_calibration(self):
+    def test_deferred_handoff_does_not_replay_calibration(self):
         index = next(i for i, (mode, _) in enumerate(startup.PHASES) if mode == '--splitter-port1-output')
         startup.save_checkpoint(index)
-        data = {'splitter_video_error': '-67', 'splitter_video_writes_started': '0'}
-        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step', side_effect=[{}, {'bar0[0x00000040]': '0x0001fd7c'}]), mock.patch.object(startup, 'run_phase', side_effect=startup.StepError('not locked', data)):
-            status.exists.return_value = False
-            with self.assertRaises(startup.WaitingForSignal): startup.initialize()
-        self.assertEqual(startup.read_checkpoint()['next'], index)
-        self.assertFalse(startup.read_checkpoint()['pending'])
         with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step', side_effect=[{}, {'bar0[0x00000040]': '0x0001fd7c'}, READY]), mock.patch.object(startup, 'run_phase') as phase:
             status.exists.return_value = False
             startup.initialize()
-        self.assertEqual(phase.call_args_list[0].args[0], '--splitter-port1-output')
-        self.assertNotIn('--receiver-calibrate', [call.args[0] for call in phase.call_args_list])
-        self.assertFalse(self.checkpoint.exists())
+            phase.assert_not_called()
+        self.assertEqual(startup.read_checkpoint()['next'], index)
+        self.assertTrue(startup.read_checkpoint()['pending'])
 
     def test_partial_write_failure_blocks_automatic_replay(self):
         index = next(i for i, (mode, _) in enumerate(startup.PHASES) if mode == '--splitter-port1-output')
-        startup.save_checkpoint(index)
-        data = {'splitter_video_error': '-67', 'splitter_video_writes_started': '1'}
-        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step', side_effect=[{}, {'bar0[0x00000040]': '0x0001fd7c'}]), mock.patch.object(startup, 'run_phase', side_effect=startup.StepError('partial write', data)):
-            status.exists.return_value = False
-            with self.assertRaises(startup.StepError): startup.initialize()
-        self.assertTrue(startup.read_checkpoint()['pending'])
+        startup.save_checkpoint(index, pending=True)
         with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step', side_effect=[{}, {'bar0[0x00000040]': '0x0001fd7c'}]), mock.patch.object(startup, 'run_phase') as phase:
             status.exists.return_value = False
             with self.assertRaisesRegex(RuntimeError, 'interrupted'): startup.initialize()
@@ -109,14 +98,25 @@ class StartupTest(TestCase):
         with mock.patch.object(startup, 'BDF', '0000:06:00.0'):
             with self.assertRaisesRegex(RuntimeError, 'stale'): startup.read_checkpoint()
 
-    def test_cold_plan_waits_after_activation(self):
+    def test_cold_plan_registers_devices_before_first_signal_wait(self):
         modes = [mode for mode, _ in startup.PHASES]
         activation = modes.index('--splitter-port1-activate')
         self.assertEqual(modes[activation + 1], 'wait-link')
         with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step', side_effect=[{}, {'bar0[0x00000040]': '0x0001f850'}, READY]), mock.patch.object(startup, 'run_phase') as phase:
             status.exists.return_value = False
             startup.initialize()
-        self.assertEqual([call.args[0] for call in phase.call_args_list], modes)
-        self.assertFalse(self.checkpoint.exists())
+        self.assertEqual([call.args[0] for call in phase.call_args_list], modes[:6])
+        self.assertEqual(startup.read_checkpoint()['next'], 6)
+        self.assertTrue(startup.read_checkpoint()['pending'])
+
+    def test_restart_preserves_registered_device_while_waiting_for_hdmi(self):
+        startup.save_checkpoint(6, pending=True)
+        data = dict(READY, hdmi_ready='0', capture_error='-67')
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
+            status.exists.return_value = True
+            status.read_text.return_value = '\n'.join(f'{k}={v}' for k,v in data.items())
+            startup.initialize()
+            step.assert_not_called()
+        self.assertTrue(startup.read_checkpoint()['pending'])
 
 if __name__ == '__main__': main()

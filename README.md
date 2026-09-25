@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.42.0 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.43.0 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -53,7 +53,7 @@ Those are **card specifications**, not features already working in this driver.
 | RGB | Generated rainbow, solid color, off and brightness; controls tested during capture; user confirms RGB works great |
 | Control app | Live incoming resolution/rate, signal state, capture/audio state and saved lighting settings |
 | Signal loss | User confirms recovery works in the current setup; detailed cable/source-mode test coverage pending |
-| Automatic startup | System boot service with HDMI-lock waits and resumable startup; user confirms automatic loading after reboot |
+| Automatic startup | Loads video/audio devices and RGB without HDMI video; finishes HDMI setup in the background when a supported source arrives |
 | External HDMI passthrough | 1080p60 video confirmed; user reports very good latency; output audio and numerical latency measurement pending |
 | Suspend/resume, compressed or multichannel audio | Not supported |
 
@@ -72,8 +72,9 @@ of its latency.
 ## Easy install and uninstall
 
 Clone or download this repository into a stable directory owned by your normal
-desktop account. With an active **1080p60, RGB 8-bit, SDR** source connected to
-HDMI IN (audio: **48 kHz stereo PCM**), run:
+desktop account. The driver can load with HDMI disconnected or the source off.
+For capture, use **1080p60, RGB 8-bit, SDR** on HDMI IN with **48 kHz stereo PCM**
+audio. To install, run:
 
 ```sh
 git clone https://github.com/Zxre0/Avermedia-GC573-Driver-For-Linux.git gc573-native
@@ -224,8 +225,8 @@ location: the optional helper, desktop launcher and startup service reference it
 
 ### 3. Build and start the driver
 
-Connect an active, unencrypted **1920×1080, 60 Hz, SDR, RGB 8-bit** HDMI source to
-**HDMI IN**. Use this verified mode for the first installation. Set source audio
+For capture, connect an active, unencrypted **1920×1080, 60 Hz, SDR, RGB 8-bit** HDMI source to
+**HDMI IN**. Use this verified mode for the first capture. Set source audio
 to **48 kHz stereo PCM**.
 
 ```sh
@@ -242,10 +243,11 @@ sudo ./tools/load-probe.sh --start 0000:05:00.0
 ```
 
 The address above is an example; use the address shown on your system.
-Successful module loading alone is not proof of HDMI capture: the output must
-report `capture_error=0` and `capture_video_registered=1`. Startup stops on
-unknown hardware states. Initial HDMI bring-up currently requires an active
-supported source, and full power-cycle startup has not yet been verified.
+Successful registration reports `capture_error=0` and `capture_video_registered=1`.
+Since 0.43.0, video/audio devices and RGB can register before HDMI video is
+available. HDMI setup continues inside the driver; `hdmi_ready=1` and a valid
+input are required for frames. Unknown hardware states still stop HDMI setup.
+A full power-off/power-on startup test remains pending.
 
 ### 4. Install the control app
 
@@ -313,14 +315,19 @@ systemctl status gc573-native-boot.service --no-pager
 journalctl -u gc573-native-boot.service -b --no-pager
 ```
 
-`active (exited)` is normal: initialization has finished and the kernel driver
-continues running. If the HDMI source is late, startup waits for power and link
-lock, then retries after 10 seconds using a checkpoint from the current boot.
-Keep a supported HDMI source active for initial bring-up. While waiting, the
-service may show `activating (auto-restart)` and the capture device may not yet
-exist. Hardware errors after partial writes stop startup instead of replaying
-resets. The original reboot failure was a transient link loss immediately after
-TX1 activation; startup now waits again at that point.
+`active (exited)` is normal: device registration has finished and the kernel
+driver continues running. **An HDMI source is not required to load the driver.**
+The video device, ALSA audio device and RGB controls remain available while a
+background worker waits for HDMI power/lock. Connect or turn on a supported
+source later; startup continues without unloading those devices. An open video
+queue waits for matching supported input; audio capture requires a valid
+48 kHz stereo PCM signal and may need reopening after the source arrives.
+
+`hdmi_ready=0` with `hdmi_waiting=1` means HDMI setup is waiting; `hdmi_ready=1`
+means setup finished. `hdmi_error` reports hardware/protocol failures separately
+from device registration, and GC573 Control displays that state. Partial-write
+failures stop the worker instead of replaying resets. Restarting the service
+preserves an already registered card, including one waiting for input.
 
 To restart the service manually after correcting a problem:
 
@@ -467,7 +474,8 @@ Look for `capture_error=0` and `capture_video_registered=1` in the loader output
 Open **GC573 Control** from the application menu and follow the existing
 [OBS video/audio instructions](#5-configure-obs-video-and-audio).
 
-For automatic loading after reboot, follow
+You can also run these commands without a source: devices/RGB register first,
+and the driver waits for HDMI in the background. For automatic loading after reboot, follow
 [step 6](#6-load-automatically-after-a-restart). Alternatively, after installing
 the dependencies in section A, `./install.sh --skip-deps` performs sections C/D
 and boot-service installation together. Debian/Ubuntu can also use `./install.sh`
@@ -505,7 +513,7 @@ The user confirmed working HDMI OUT video on 2026-09-22 with the current
 1080p60 source. HDMI OUT audio remains unverified.
 
 Connect and power the HDMI OUT display before starting the driver. Capture
-registration attempts the bounded RGB 8-bit, unencrypted output setup and
+startup attempts the bounded RGB 8-bit, unencrypted output setup and
 preserves an already enabled TX2. An absent display does not prevent capture.
 The `passthrough_startup_*` status fields describe that startup attempt, not a
 live display check. Automatic output hotplug recovery is not implemented yet.
@@ -521,9 +529,12 @@ mode, then repeat with OBS closed and with video/audio capture active.
   or reboot into the kernel matching your installed headers, then rebuild.
 - **Module is in use:** close OBS and other capture applications. Desktop audio
   services can also hold the ALSA control device open. Do not force module removal.
-- **No video device / startup error:** keep the source active at 1080p60 RGB8 SDR,
-  inspect the reported error fields, and save the output. Logs from the helper
-  are stored locally under `reports/`.
+- **No video device / startup error:** inspect the service journal and reported
+  error fields; a missing HDMI source alone should not prevent registration.
+  Logs from the helper are stored locally under `reports/`.
+- **Device present but no frames:** connect a supported 1080p60 RGB8 SDR source.
+  Check `hdmi_ready`, `hdmi_waiting`, `hdmi_error` and `input_present` with the
+  status command below. HDMI setup errors need diagnosis, not repeated resets.
 - **No audio:** select HDMI as the source's sound output, choose 48 kHz stereo PCM,
   check volume/mute, and select `hw:GC573,0` in OBS. Compressed bitstreams and
   multichannel capture are not implemented.
@@ -546,7 +557,7 @@ python3 tools/collect.py
 v4l2-compliance -d /dev/video0         # close OBS first; select your actual node
 ```
 
-V4L2 compliance on 0.42.0: **48 passed, zero failures, zero warnings**. Protocol
+V4L2 compliance on 0.43.0: **48 passed, zero failures, zero warnings**. Protocol
 harnesses use AddressSanitizer and UndefinedBehaviorSanitizer. Hardware captures
 and raw reports remain local; CI and fake-I/O tests cannot prove HDMI operation.
 

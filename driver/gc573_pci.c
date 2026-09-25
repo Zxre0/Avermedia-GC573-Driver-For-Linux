@@ -9,9 +9,11 @@
 #include <linux/pci.h>
 #include <linux/slab.h>
 #include <linux/ktime.h>
+#include <linux/workqueue.h>
 #include "gc573_i2c.h"
 #include "gc573_block.h"
 #include "gc573_capture.h"
+#include "gc573_hdmi.h"
 
 #define GC573_BAR_BYTES 0x80000
 #define GC573_MAX_READS 16
@@ -27,6 +29,9 @@ MODULE_PARM_DESC(probe_receiver_video, "Read locked receiver timing, AVI and out
 static bool capture_video;
 module_param(capture_video, bool, 0400);
 MODULE_PARM_DESC(capture_video, "Expose native 720p/1080p RGB24 V4L2 capture");
+static unsigned int hdmi_start_phase;
+module_param(hdmi_start_phase, uint, 0400);
+MODULE_PARM_DESC(hdmi_start_phase, "Continue checked HDMI startup in the background from phase 6..18");
 static bool capture_once;
 module_param(capture_once, bool, 0400);
 MODULE_PARM_DESC(capture_once, "Capture one bounded 1080p RGB24 DMA frame");
@@ -176,6 +181,10 @@ MODULE_PARM_DESC(read_offsets,
 
 struct gc573_device {
 	struct gc573_capture *capture;
+	struct delayed_work hdmi_work;
+	struct gc573_hdmi hdmi;
+	struct gc573_block_io hdmi_io;
+	bool hdmi_ready;
 	int passthrough_error;
 	struct gc573_passthrough_result passthrough;
 	int receiver_video_error;
@@ -293,6 +302,37 @@ static int gc573_block_wait_write(void *ctx, unsigned int *status,
 			       50, 2000000, false, card->bar + GC573_BLOCK_STATUS);
 	*status = sample;
 	return ret ? ret : (observed < 0 ? observed : 0);
+}
+
+static int gc573_hdmi_ready(void *ctx)
+{
+	struct gc573_device *card = ctx;
+
+	return smp_load_acquire(&card->hdmi_ready);
+}
+
+static void gc573_hdmi_work(struct work_struct *work)
+{
+	struct gc573_device *card = container_of(to_delayed_work(work),
+						struct gc573_device, hdmi_work);
+	int ret = gc573_hdmi_poll(&card->hdmi_io, &card->hdmi);
+
+	if (ret) {
+		pr_err("gc573_native: HDMI startup stopped at phase %u: %d; capture device remains registered\n",
+		       card->hdmi.phase, ret);
+		return;
+	}
+	if (card->hdmi.complete) {
+		card->passthrough = card->hdmi.passthrough;
+		card->passthrough_error = card->hdmi.passthrough_error;
+		/* No further worker I2C accesses after publishing readiness. ALSA
+		 * prepare may now take exclusive ownership of the shared bus.
+		 */
+		smp_store_release(&card->hdmi_ready, true);
+		return;
+	}
+	schedule_delayed_work(&card->hdmi_work,
+		msecs_to_jiffies(card->hdmi.waiting ? 500 : 10));
 }
 
 static unsigned char gc573_read_i2c(void *ctx, unsigned int reg)
@@ -417,6 +457,12 @@ static ssize_t bringup_status_show(struct device *dev,
 	for (i = 0; i < read_count; i++)
 		used += sysfs_emit_at(buf, used, "bar0[0x%08x]=0x%08x\n",
 				     read_offsets[i], card->samples[i]);
+	if (capture_video)
+		used += sysfs_emit_at(buf, used,
+			"hdmi_deferred=%u\nhdmi_ready=%u\nhdmi_phase=%u\nhdmi_waiting=%u\nhdmi_error=%d\nhdmi_polls=%u\nhdmi_tx_preserved=%u\n",
+			!!hdmi_start_phase, gc573_hdmi_ready(card), READ_ONCE(card->hdmi.phase),
+			READ_ONCE(card->hdmi.waiting), READ_ONCE(card->hdmi.error),
+			READ_ONCE(card->hdmi.polls), READ_ONCE(card->hdmi.tx_preserved));
 	if (capture_video)
 		used += sysfs_emit_at(buf, used,
 			"passthrough_startup_error=%d\npassthrough_startup_phase=%u\n"
@@ -1255,6 +1301,9 @@ static int gc573_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	unsigned int i;
 	int ret;
 
+	if (hdmi_start_phase && (!capture_video || hdmi_start_phase < GC573_HDMI_FIRST ||
+				hdmi_start_phase >= GC573_HDMI_DONE))
+		return -EINVAL;
 	if ((unsigned int)inspect_access + probe_i2c + probe_block +
 	    prepare_gpio + probe_receiver + probe_signal + probe_write +
 	    initialize_receiver + calibrate_receiver + probe_clock + program_timing + probe_edid + configure_edid + start_input + probe_splitter + start_splitter + prepare_splitter + probe_splitter_clock + program_splitter_timing + configure_splitter_map + calibrate_splitter_rx + setup_splitter_rx + finish_splitter_rx + prepare_splitter_tx + initialize_splitter_ports + initialize_splitter_tx + finish_splitter_tx + probe_splitter_link + request_splitter_hpd + probe_splitter_edid + enable_splitter_edid + activate_splitter_port1 + measure_splitter_video + configure_splitter_video + output_splitter_video + probe_receiver_video + output_receiver_video + capture_once + capture_video > 1)
@@ -1512,11 +1561,19 @@ static int gc573_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			.ctx = card, .read = gc573_block_read, .write = gc573_block_write,
 			.wait = gc573_block_wait, .sleep_ms = gc573_sleep_ms,
 			.wait_write = gc573_block_wait_write, .time_ms = gc573_time_ms,
+			.ready = gc573_hdmi_ready,
 		};
 
-		if (capture_video)
+		card->hdmi_ready = !hdmi_start_phase;
+		INIT_DELAYED_WORK(&card->hdmi_work, gc573_hdmi_work);
+		if (capture_video && !hdmi_start_phase)
 			card->passthrough_error = gc573_splitter_passthrough(&io, &card->passthrough);
 		card->capture = gc573_capture_create(pdev, card->bar, capture_video, &io);
+		if (hdmi_start_phase && gc573_capture_registered(card->capture)) {
+			card->hdmi.phase = hdmi_start_phase;
+			card->hdmi_io = io;
+			schedule_delayed_work(&card->hdmi_work, msecs_to_jiffies(100));
+		}
 	}
 	pci_set_drvdata(pdev, card);
 	dev_info(&pdev->dev,
@@ -1535,6 +1592,8 @@ static void gc573_remove(struct pci_dev *pdev)
 {
 	struct gc573_device *card = pci_get_drvdata(pdev);
 
+	if (capture_once || capture_video)
+		cancel_delayed_work_sync(&card->hdmi_work);
 	gc573_capture_destroy(card->capture);
 	pci_iounmap(pdev, card->bar);
 	pci_release_region(pdev, 0);
@@ -1559,4 +1618,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.42.0");
+MODULE_VERSION("0.43.0");

@@ -45,13 +45,20 @@ working capture is preserved. The installer disables the older login unit to
 avoid duplicate startup. A checkout/home directory unavailable before login
 requires the login-only option documented in the README.
 
-Startup waits for source power and HDMI lock, including after TX1 activation.
-Completed phases are checkpointed under `/run/gc573-codex/`, bound to the PCI
-address and Linux boot ID. A temporary signal wait exits with status 75; systemd
-retries after 10 seconds. Checked phases are not replayed on that retry. A
-failed or interrupted writing phase stays marked pending and stops automatic
-replay. Checkpoints do not persist across reboot. This is not a general reset
-or recovery procedure for arbitrary partially initialized hardware.
+Since 0.43.0, startup completes the static receiver/splitter preparation, then
+registers video/audio devices and RGB before waiting for HDMI input. The module
+continues the signal-dependent phases in delayed work. Waits poll every 500 ms;
+successful phases advance once, and writes that fail stop the worker. Video DMA
+and audio receiver accesses are gated until the worker finishes, so an application
+can open the video node while HDMI is absent without racing initialization.
+
+The userspace prefix is checkpointed under `/run/gc573-codex/`, bound to the PCI
+address and Linux boot ID. The handoff stays marked pending while the worker owns
+startup. A service restart preserves the loaded card; if that module is unloaded
+mid-initialization, the checkpoint blocks blind replay of hardware writes.
+Checkpoints do not persist across reboot. This is not a general reset or recovery
+procedure for arbitrary partially initialized hardware. Exit 75 remains available
+for temporary startup-lock contention, with a 10-second service retry.
 
 Check status and logs:
 
@@ -60,11 +67,13 @@ systemctl status gc573-native-boot.service --no-pager
 journalctl -u gc573-native-boot.service -b --no-pager
 ```
 
-`active (exited)` means initialization completed. A supported HDMI source is
-required before initial capture registration. Matching kernel headers are
-required to build after a kernel update. A missing source can leave the service
-in `activating (auto-restart)`. Hardware/identity/build failures stop the service
-and remain visible in the journal. The boot service has been started on the
+`active (exited)` means the devices are registered, including when HDMI is absent.
+Check `hdmi_ready`, `hdmi_waiting`, `hdmi_phase` and `hdmi_error` in the app's
+`--status` output for the background HDMI setup. A supported source is needed for
+frames, and valid PCM audio is needed to start audio capture. Matching kernel
+headers are required to build after a kernel update. Hardware/identity/build
+failures remain visible in the journal; deferred protocol failures leave the
+devices registered with `hdmi_error` set. The boot service has been started on the
 target system, and the user has confirmed successful automatic loading after
 reboot with the corrected sequence. A full power-off/power-on test remains separate.
 

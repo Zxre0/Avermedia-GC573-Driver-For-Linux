@@ -15,6 +15,7 @@ i2c_read=0
 layout_read=0
 block_read=0
 video_capture=0
+hdmi_deferred=0
 frame_capture=0
 fpga_read=0
 board_read=0
@@ -56,6 +57,7 @@ splitter_timing=0
 case ${1:-} in
     --start) identity_read=1; auto_start=1; shift ;;
     --capture-video) identity_read=1; video_capture=1; shift ;;
+    --capture-wait) identity_read=1; video_capture=1; hdmi_deferred=1; shift ;;
     --capture-once) identity_read=1; frame_capture=1; shift ;;
     --fpga-status) identity_read=1; fpga_read=1; shift ;;
     --receiver-output) identity_read=1; receiver_output=1; shift ;;
@@ -475,6 +477,12 @@ fi
 if [[ "$auto_start" == 1 ]]; then
     exec /usr/bin/python3 "$project_dir/tools/start-capture.py" "$bdf"
 fi
+hdmi_phase=0
+if [[ "$hdmi_deferred" == 1 ]]; then
+    parameters=$(modinfo -p "$module")
+    [[ "$parameters" == *"hdmi_start_phase:"* ]] || { echo 'Rebuild for deferred HDMI startup.' >&2; exit 1; }
+    hdmi_phase=$(python3 "$project_dir/tools/start-capture.py" --handoff-phase "$bdf")
+fi
 modprobe snd-pcm
 modprobe videodev
 modprobe videobuf2-vmalloc
@@ -484,7 +492,7 @@ if [[ "$identity_read" == 1 ]]; then
         rmmod gc573_native
     fi
     if [[ "$video_capture" == 1 ]]; then
-        insmod "$module" "target_bdf=$bdf" read_offsets=0 capture_video=1
+        insmod "$module" "target_bdf=$bdf" read_offsets=0 capture_video=1 "hdmi_start_phase=$hdmi_phase"
     elif [[ "$frame_capture" == 1 ]]; then
         insmod "$module" "target_bdf=$bdf" read_offsets=0 capture_once=1
     elif [[ "$fpga_read" == 1 ]]; then

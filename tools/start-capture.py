@@ -47,8 +47,8 @@ def step(mode, **expected):
 
 
 def ready(data):
-    return all(data.get(k) == str(v) for k, v in {
-        'capture_video_registered': 1, 'capture_error': 0,
+    return data.get('capture_error') in ('0', '-67') and all(data.get(k) == str(v) for k, v in {
+        'capture_video_registered': 1,
         'led_error': 0, 'led_rgb_complete': 1,
         'led_live_divider': '0x000003af', 'led_live_enabled': '0x0000001f'}.items())
 
@@ -171,7 +171,10 @@ def safe_link_race(mode, data):
 
 def initialize():
     if STATUS.exists() and ready(fields(STATUS.read_text())):
-        clear_checkpoint()
+        # Keep the guard against reloading an interrupted in-kernel writing
+        # phase until that worker has completed; restarting the service is safe.
+        if fields(STATUS.read_text()).get('hdmi_ready', '1') == '1':
+            clear_checkpoint()
         print('GC573 native capture and RGB are already ready; preserving the open device.')
         return
     data = step('--fpga-status')
@@ -189,6 +192,14 @@ def initialize():
             index = checkpoint['next']
             print(f'Resuming checked startup at phase {index}', flush=True)
         for index in range(index, len(PHASES)):
+            if index >= 6:
+                # Devices and RGB are independent of the source. The module
+                # continues the remaining phases without unloading open nodes.
+                save_checkpoint(index, pending=True)
+                step('--capture-wait', capture_error=0, capture_video_registered=1,
+                     led_error=0, led_rgb_complete=1, hdmi_deferred=1)
+                print('GC573 devices and RGB are ready; HDMI setup continues in the background.')
+                return
             mode, expected = PHASES[index]
             save_checkpoint(index, pending=mode.startswith('--'))
             try:
@@ -206,11 +217,12 @@ def initialize():
 
 
 if __name__ == '__main__':
-    if os.geteuid() != 0 or len(sys.argv) != 2:
+    handoff = len(sys.argv) == 3 and sys.argv[1] == '--handoff-phase'
+    if os.geteuid() != 0 or (len(sys.argv) != 2 and not handoff):
         sys.exit('Use the installed GC573 helper with --start.')
     try:
         import re
-        BDF = sys.argv[1]
+        BDF = sys.argv[-1]
         if not re.fullmatch(r'[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]', BDF):
             raise RuntimeError('Invalid PCI address')
         STATUS = Path('/sys/bus/pci/devices') / BDF / 'bringup_status'
@@ -218,7 +230,13 @@ if __name__ == '__main__':
         runtime.mkdir(mode=0o700, exist_ok=True)
         CHECKPOINT = runtime / f'startup-{BDF}.json'
         BOOT_ID = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
-        initialize()
+        if handoff:
+            checkpoint = read_checkpoint()
+            if checkpoint is None or not checkpoint['pending'] or not 6 <= checkpoint['next'] <= 18:
+                raise RuntimeError('No checked deferred startup handoff')
+            print(checkpoint['next'])
+        else:
+            initialize()
     except WaitingForSignal as exc:
         print(f'GC573 startup waiting: {exc} (temporary, exit 75).', file=sys.stderr)
         sys.exit(75)

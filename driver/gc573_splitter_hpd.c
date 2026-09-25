@@ -333,8 +333,9 @@ int gc573_splitter_port_activate(const struct gc573_block_io *io,
 	r->transactions = link->transactions;
 	if (ret)
 		return ret;
-	if ((link->tx[port] & 7) != 7 || !(link->rx[8] & 0x10) ||
-	    !(link->rx[11] & 0x80) || link->rx[15] || link->rx[16] != 0xff ||
+	if ((link->tx[port] & 7) != 7 || !(link->rx[8] & 0x10) || !(link->rx[11] & 0x80))
+		return -ENOLINK;
+	if (link->rx[15] || link->rx[16] != 0xff ||
 	    (link->rx[17] & 0x13) != 2)
 		return -EOPNOTSUPP;
 	r->sink_mask = 1U << port;
@@ -344,6 +345,8 @@ int gc573_splitter_port_activate(const struct gc573_block_io *io,
 		ret = hpd_read(&c, 0x34 + port, i ? 0x86 : 0x84);
 		if (ret)
 			return ret;
+		r->expected = i ? 0 : 0xe4;
+		r->observed = r->last.data[0];
 		if (r->last.data[0] != (i ? 0 : 0xe4))
 			return -EOPNOTSUPP;
 	}

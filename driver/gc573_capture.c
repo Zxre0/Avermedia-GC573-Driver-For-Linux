@@ -34,6 +34,7 @@ struct capture_buffer {
 struct gc573_capture {
 	struct pci_dev *pdev;
 	void __iomem *bar;
+	struct gc573_block_io io;
 	void *chunks[CHUNKS];
 	dma_addr_t addresses[CHUNKS];
 	struct gc573_descriptor *desc;
@@ -149,6 +150,9 @@ static int cap_stop(struct gc573_capture *c)
 	unsigned long flags;
 	int ret;
 
+	/* A queue opened before the first HDMI signal has never armed DMA. */
+	if (!c->started)
+		return 0;
 	WRITE_ONCE(c->streaming, false);
 	/* Stop video and its IRQ before removing bus master and resetting DMA. */
 	cap_write(c, 0x1000, cap_read(c, 0x1000) & ~1U);
@@ -205,7 +209,8 @@ static bool cap_input_matches(struct gc573_capture *c)
 {
 	u32 period = cap_read(c, 0x1010);
 
-	return (cap_read(c, 0x1004) & 1) && cap_read(c, 0x1008) == c->width &&
+	return (!c->io.ready || c->io.ready(c->io.ctx)) &&
+		(cap_read(c, 0x1004) & 1) && cap_read(c, 0x1008) == c->width &&
 		cap_read(c, 0x100c) == c->height && period >= 100000000U / 61 &&
 		period <= 100000000U / 23;
 }
@@ -506,7 +511,8 @@ static int cap_start_streaming(struct vb2_queue *q, unsigned int count)
 	c->sequence = 0;
 	c->error = 0;
 	cap_layout(c);
-	cap_enable(c);
+	if (cap_input_matches(c))
+		cap_enable(c);
 	c->thread = kthread_run(cap_worker, c, "gc573-capture");
 	if (IS_ERR(c->thread)) {
 		int ret = PTR_ERR(c->thread);
@@ -804,6 +810,7 @@ struct gc573_capture *gc573_capture_create(struct pci_dev *pdev, void __iomem *b
 		return NULL;
 	c->pdev = pdev;
 	c->bar = bar;
+	c->io = *io;
 	spin_lock_init(&c->engine_lock);
 	mutex_init(&c->led_mutex);
 	c->led_color = 0xffffff;
@@ -812,7 +819,8 @@ struct gc573_capture *gc573_capture_create(struct pci_dev *pdev, void __iomem *b
 	c->error = cap_prepare(c);
 	if (c->error)
 		return c;
-	c->audio_signal_error = gc573_audio_signal_read(io, &c->audio_signal);
+	c->audio_signal_error = io->ready && !io->ready(io->ctx) ? -ENOLINK :
+		gc573_audio_signal_read(io, &c->audio_signal);
 	if (!c->audio_signal_error)
 		c->audio_signal_error = gc573_audio_signal_enable(io, &c->audio_signal);
 	if (!c->error)
@@ -827,6 +835,11 @@ struct gc573_capture *gc573_capture_create(struct pci_dev *pdev, void __iomem *b
 	if (!c->error && !c->led_error)
 		schedule_delayed_work(&c->led_work, msecs_to_jiffies(250));
 	return c;
+}
+
+bool gc573_capture_registered(struct gc573_capture *c)
+{
+	return c && c->registered && !c->error;
 }
 
 void gc573_capture_destroy(struct gc573_capture *c)
