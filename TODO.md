@@ -63,6 +63,13 @@ separately; an unchecked item has not been demonstrated complete.
 - [ ] Verify HDMI OUT audio and measure passthrough latency independently of
   OBS preview. No numerical latency measurement has been recorded.
 - [ ] Implement and verify external-output hotplug recovery after driver startup.
+- [x] Add GC573 Preview: a shareable GTK4 console window with bounded video
+  buffering, stereo audio playback, volume, pause and fullscreen controls.
+  Live 1080p59.94 PS5 video and nonzero stereo audio observed locally.
+- [ ] Verify a Discord viewer receives both the preview picture and console audio.
+- [ ] Implement and validate simultaneous 1440p120 passthrough with 1080p60
+  capture. Keep source/display mode independent of capture scaling and rate
+  conversion; preserve capture as the default while this remains unimplemented.
 - [x] Build and install a GTK4 desktop app with RGB controls, live measured
   resolution/frame rate, capture/audio state and disconnected/error feedback.
 - [x] Prepare source for GitHub: portable paths and PCI discovery, GPL-2.0-only,

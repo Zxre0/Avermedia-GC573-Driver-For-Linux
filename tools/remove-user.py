@@ -20,8 +20,9 @@ def remove(path):
 def cleanup(project, home, environ, keep_settings=False):
     config = Path(environ.get('XDG_CONFIG_HOME') or home / '.config')
     data = Path(environ.get('XDG_DATA_HOME') or home / '.local/share')
-    remove(home / '.local/bin/gc573-control')
-    remove(data / 'applications/gc573-control.desktop')
+    for app in ('control', 'preview'):
+        remove(home / f'.local/bin/gc573-{app}')
+        remove(data / f'applications/gc573-{app}.desktop')
     if not keep_settings:
         remove(config / 'gc573-control')
     if environ.get('XDG_RUNTIME_DIR'):

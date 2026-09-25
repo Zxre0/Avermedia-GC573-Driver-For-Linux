@@ -5,7 +5,7 @@ project=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 case ${1:-} in
     --help|-h)
         echo "Usage: $0 [--skip-deps]"
-        echo 'Install dependencies, build the driver, install GC573 Control and enable boot startup.'
+        echo 'Install dependencies, build the driver, install GC573 Control/Preview and enable boot startup.'
         echo 'Run as your normal desktop user. sudo is requested for system changes.'
         exit 0 ;;
     ''|--skip-deps) ;;
@@ -21,7 +21,7 @@ trap 'echo "Installation did not finish. Correct the error and rerun ./install.s
 if [[ ${1:-} != --skip-deps ]]; then
     kernel=$(uname -r)
     if command -v pacman >/dev/null; then
-        packages=(base-devel git clang llvm python python-gobject gtk4 kmod sudo util-linux v4l-utils alsa-utils obs-studio)
+        packages=(base-devel git clang llvm python python-gobject gtk4 gstreamer gst-plugins-base gst-plugins-good kmod sudo util-linux v4l-utils alsa-utils obs-studio)
         if [[ -r /lib/modules/$kernel/pkgbase ]]; then
             read -r pkgbase < "/lib/modules/$kernel/pkgbase"
             [[ $pkgbase =~ ^[a-zA-Z0-9][a-zA-Z0-9.+_-]*$ ]] || { echo 'Invalid kernel package name.' >&2; exit 1; }
@@ -34,6 +34,8 @@ if [[ ${1:-} != --skip-deps ]]; then
     elif command -v apt-get >/dev/null; then
         sudo apt-get update
         sudo apt-get install build-essential git clang llvm python3 python3-gi gir1.2-gtk-4.0 \
+            gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gstreamer1.0-alsa \
             kmod sudo util-linux v4l-utils alsa-utils obs-studio "linux-headers-$kernel"
     else
         echo 'Automatic dependencies support Arch/CachyOS and Debian/Ubuntu.' >&2
@@ -44,6 +46,19 @@ fi
 
 # Validate everything we can before granting helper access or enabling startup.
 python3 -c "import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk"
+python3 - <<'PY'
+import gi
+gi.require_version('Gst', '1.0')
+gi.require_version('GstApp', '1.0')
+gi.require_version('GstVideo', '1.0')
+from gi.repository import Gst
+Gst.init(None)
+missing = [name for name in ('v4l2src', 'appsink', 'alsasrc', 'pulsesink',
+                             'audioconvert', 'audioresample', 'volume')
+           if not Gst.ElementFactory.find(name)]
+if missing:
+    raise SystemExit('Missing preview plugins: ' + ', '.join(missing))
+PY
 python3 "$project/tools/find-card.py"
 "$project/tools/build.sh"
 sudo "$project/tools/enable-unattended-probes.sh"
@@ -53,5 +68,6 @@ sudo "$project/tools/enable-unattended-probes.sh"
 printf '\nInstallation complete; boot startup has been queued.\n'
 printf 'The driver and RGB controls load without HDMI input; capture starts when a supported source is ready.\n'
 printf 'Open GC573 Control from your application menu. Connect an active 1080p60 RGB8 SDR HDMI source.\n'
+printf 'For a simple console window to share in Discord, open GC573 Preview with OBS closed.\n'
 printf 'Check initialization: systemctl status gc573-native-boot.service --no-pager\n'
 printf 'OBS video/audio setup is in README.md, step 5. Keep this checkout in its current location.\n'

@@ -204,3 +204,26 @@ mode observation and return-profile restoration. Transfer failures stop at the
 injected transaction; an unknown controller state prevents restoration writes.
 The existing capture/HDMI tests remain in the full sanitizer suite. Python tests
 cover both receiver handoff paths and refusal to reset a failed passthrough phase.
+
+## Console preview and capture recovery (2026-09-24)
+
+On the same CachyOS/7.2.6 GC573 and PS5, passthrough mode had stopped at a
+phase-7 unsupported-format preflight after a console mode change. The return
+to capture now accepts that specific rejection with bank-zero/read-completion
+evidence, while still refusing transport errors and incomplete phase-8 writes.
+The checked splitter restart and deferred capture setup reached phase 19 with
+1920×1080 at 59.944 fps. Capture is again the saved startup preference.
+
+The GTK4/GStreamer preview smoke run received 465 frames and rendered 460 in
+approximately eight seconds. A live window screenshot showed the PS5 Settings
+screen with correct geometry; video and stereo playback ran concurrently.
+During playback, ALSA reported 815 periods, 1,393,104 nonzero bytes, no guard
+errors and prepare_error=0. This verifies local decoded frames and nonzero
+audio through the capture/playback pipeline, not a remote Discord viewer,
+measured end-to-end latency or content-relative A/V synchronization.
+
+Python tests cover rejecting passthrough/unsupported input for the preview,
+bounded latest-frame buffering, matching audio to the same PCI card, cleanup
+of both launchers, and the narrowly permitted mode-rejection recovery. The app
+requires no root privileges, encoder or OBS process. It does not start a call
+or broadcast. Simultaneous 1440p120 HDMI OUT plus 1080p60 capture remains pending.

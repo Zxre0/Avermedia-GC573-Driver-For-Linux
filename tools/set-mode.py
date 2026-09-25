@@ -34,7 +34,7 @@ def main():
     args = parser.parse_args()
     if os.geteuid() == 0:
         parser.error('Run as your desktop user; the installed helper handles module loading.')
-    print('Close OBS and other capture applications before switching. '
+    print('Close OBS, GC573 Preview and other capture applications before switching. '
           'Passthrough mode disables host video/audio capture.', flush=True)
     active = subprocess.run(['systemctl', '--user', 'is-active', '--quiet', 'wireplumber']).returncode == 0
     try:

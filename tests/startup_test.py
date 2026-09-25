@@ -58,6 +58,27 @@ class StartupTest(TestCase):
                 startup.initialize()
             step.assert_not_called()
 
+    def test_capture_recovery_after_checked_unsupported_format_rejection(self):
+        data = dict(READY, passthrough_only='1', external_phase='3', external_error='-95',
+                    external_video_phase='7', external_video_last_reg='0x13',
+                    external_video_expected='0x00', external_video_observed='0x00', external_last_status='0x00000004')
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
+            status.exists.return_value = True
+            status.read_text.return_value = '\n'.join(f'{k}={v}' for k,v in data.items())
+            step.side_effect = [{}, {}, {'bar0[0x00000040]': '0x0001fd7c'}, READY]
+            startup.initialize()
+            self.assertEqual(startup.read_checkpoint()['next'], 9)
+
+    def test_recovery_refuses_incomplete_output_programming(self):
+        data = dict(READY, passthrough_only='1', external_phase='3', external_error='-95',
+                    external_video_phase='8', external_video_last_reg='0xc1')
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
+            status.exists.return_value = True
+            status.read_text.return_value = '\n'.join(f'{k}={v}' for k,v in data.items())
+            with self.assertRaisesRegex(RuntimeError, 'did not finish'):
+                startup.initialize()
+            step.assert_not_called()
+
     def test_prepared_input_needs_no_chip_resets(self):
         with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step', side_effect=[INPUT, READY]) as step:
             status.exists.return_value = False

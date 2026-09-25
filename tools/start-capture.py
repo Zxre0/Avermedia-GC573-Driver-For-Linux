@@ -183,7 +183,15 @@ def initialize(passthrough=False):
              led_error=0, led_rgb_complete=1)
         return
     if not passthrough and number(current, 'passthrough_only'):
-        if number(current, 'external_error') or number(current, 'external_phase') != 3:
+        # Phase 7 can reject a newly selected source format after restoring
+        # bank zero and before output programming. This is not a bus failure.
+        rejected_format = (number(current, 'external_error') == -95 and
+                           number(current, 'external_video_phase') == 7 and
+                           number(current, 'external_video_last_reg') == 0x13 and
+                           current.get('external_video_expected') in ('0', '0x00') and
+                           current.get('external_video_observed') in ('0', '0x00') and
+                           number(current, 'external_last_status') == 4)
+        if (number(current, 'external_error') and not rejected_format) or number(current, 'external_phase') != 3:
             raise RuntimeError('Passthrough initialization did not finish; inspect diagnostics before switching')
         # Leaving a high TMDS ratio needs receiver relocking, not just SRAM
         # restoration. Use the existing checked splitter startup once, then

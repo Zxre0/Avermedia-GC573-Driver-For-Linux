@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GC573 Preview
+Comment=Watch your console and share its window in Discord
+Exec=gc573-preview
+Icon=video-display
+Terminal=false
+Categories=AudioVideo;Video;
+StartupWMClass=io.github.gc573.Preview

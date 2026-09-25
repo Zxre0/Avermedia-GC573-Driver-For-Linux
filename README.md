@@ -70,6 +70,47 @@ formats and/or a suitable ×4 connection are needed for those capture modes.
 HDMI passthrough latency requires separate testing; PCIe bandwidth is not a measurement
 of its latency.
 
+## PS5 preview for Discord (no OBS required)
+
+Open **GC573 Preview** from your application menu. It displays the native capture
+stream in a normal window and plays stereo console audio through your desktop's
+default output. Close OBS first: the preview and OBS cannot own the capture
+stream simultaneously. The preview offers Pause/Resume, sound/volume controls,
+fullscreen (F11; Escape to leave), and automatic recovery when a supported input
+returns. It keeps only the newest video frame to avoid a growing preview delay.
+This is a capture preview; play on HDMI OUT for the lowest latency.
+
+For an existing installation, install the additional dependencies and launchers:
+
+```sh
+# Arch / CachyOS
+sudo pacman -S --needed gstreamer gst-plugins-base gst-plugins-good
+# Debian / Ubuntu alternative:
+# sudo apt-get install gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
+#   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-alsa
+./tools/install-app.sh
+python3 tools/set-mode.py capture  # if passthrough-only mode was enabled
+~/.local/bin/gc573-preview
+```
+
+The full installer includes these dependencies. You can also launch directly
+with `python3 app/gc573_preview.py`; add `--mute` to start without local sound.
+
+In your Discord call, choose **Share Your Screen** and select the **GC573 Preview**
+window in the system picker. Enable sound/select the preview's audio stream if
+your client offers that option. The app never joins calls or starts a broadcast.
+Remote audio support depends on the Discord client and Linux audio/portal setup;
+local playback does not prove that viewers hear it. See
+[Discord's screen-sharing guide](https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share).
+An actual Discord call has not been tested by this project.
+
+**This app requires capture mode**, currently verified at 1080p60 RGB8 SDR with
+HDCP disabled. It does not make passthrough-only mode capturable. Simultaneous
+1440p120 HDMI OUT plus 1080p60 capture still needs driver-side scaling/frame-rate
+conversion (or another verified capture/conversion path). That is tracked in
+[TODO.md](TODO.md); it is not an implemented feature. Capture mode remains the
+default for sharing your console.
+
 ## Experimental high-rate HDMI passthrough (0.44.0)
 
 HDMI OUT can now use a separate **RGB 8-bit SDR passthrough mode**. It reads your
@@ -161,7 +202,7 @@ handled by the startup service. Open **GC573 Control** from the app menu, then
 follow [step 5](#5-configure-obs-video-and-audio) to add video and audio in OBS.
 The installer does not overwrite your OBS scenes or profiles.
 
-To uninstall, close OBS and GC573 Control and run from the same checkout and
+To uninstall, close OBS, GC573 Preview and GC573 Control and run from the same checkout and
 desktop account:
 
 ```sh
@@ -169,8 +210,8 @@ desktop account:
 ```
 
 This removes **all project installation components**: boot and login services,
-the loaded kernel module, privileged helper and sudoers rule, app launcher and
-menu entry, saved RGB preferences, runtime checkpoints, generated modules/test
+the loaded kernel module, privileged helper and sudoers rule, app launchers and
+menu entries, saved RGB preferences, runtime checkpoints, generated modules/test
 binaries, Python caches, and automatic startup logs. It also works after a
 partial or manual installation. If WirePlumber holds the audio device, removal
 briefly pauses it and restores it afterward; desktop audio may pause. A driver
@@ -200,7 +241,7 @@ The complete manual method follows for users who prefer individual steps.
 For the regular `linux-cachyos` kernel:
 
 ```sh
-sudo pacman -Syu --needed base-devel git clang llvm python python-gobject gtk4 \
+sudo pacman -Syu --needed base-devel git clang llvm python python-gobject gtk4 gstreamer gst-plugins-base gst-plugins-good \
   kmod sudo util-linux v4l-utils alsa-utils obs-studio linux-cachyos-headers
 ```
 
@@ -230,7 +271,7 @@ Run `makepkg` and `yay` as your normal user; they request sudo when needed.
 Install the driver dependencies with:
 
 ```sh
-yay -Syu --needed base-devel git clang llvm python python-gobject gtk4 \
+yay -Syu --needed base-devel git clang llvm python python-gobject gtk4 gstreamer gst-plugins-base gst-plugins-good \
   kmod sudo util-linux v4l-utils alsa-utils obs-studio linux-cachyos-headers
 ```
 
@@ -301,7 +342,7 @@ measurements until they settle; unsupported formats and partial programming
 failures still stop setup. This addresses a PS5 startup failure with HDCP disabled.
 A full power-off/power-on startup test remains pending.
 
-### 4. Install the control app
+### 4. Install the control and preview apps
 
 Run this as your normal desktop user:
 
@@ -629,11 +670,12 @@ If automatic startup and the helper were installed:
 sudo ./tools/enable-unattended-probes.sh --remove
 ```
 
-Remove the desktop launcher as your normal user:
+Remove both desktop launchers as your normal user:
 
 ```sh
-rm -f ~/.local/bin/gc573-control
-rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/gc573-control.desktop"
+rm -f ~/.local/bin/gc573-control ~/.local/bin/gc573-preview
+rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/gc573-control.desktop" \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/applications/gc573-preview.desktop"
 ```
 
 After closing capture applications, `sudo rmmod gc573_native` unloads the driver

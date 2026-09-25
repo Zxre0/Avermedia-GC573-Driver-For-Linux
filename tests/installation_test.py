@@ -42,6 +42,7 @@ class InstallationTest(unittest.TestCase):
 
     def test_user_cleanup_is_complete_repeatable_and_preserves_personal_files(self):
         removed = [self.home / '.local/bin/gc573-control', self.home / 'data/applications/gc573-control.desktop',
+                   self.home / '.local/bin/gc573-preview', self.home / 'data/applications/gc573-preview.desktop',
                    self.home / 'config/gc573-control/settings.json', self.home / 'run/gc573-native-start.lock']
         removed += [self.project / item for item in ('.build/modules/kernel/gc573_native.ko', '.build/tests/block_test',
                     'driver/gc573_pci.o', 'driver/.gc573_pci.o.cmd', 'driver/gc573_native.mod.c',
