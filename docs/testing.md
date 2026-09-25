@@ -285,12 +285,19 @@ CachyOS `7.2.6-1-cachyos`, PCIe Gen2 x2. The live source was RGB8
   seconds. Restored live Preview and Control windows showed HDMI 2560×1440 at
   59.94 Hz and 1920×1080 capture; saved RGB settings and WirePlumber were restored.
 - Direct ALSA capture delivered 300 periods with no guard or prepare error.
-  Receiver diagnostics indicated 48 kHz PCM, but the recording and concurrent
-  preview audio buffers were silent. Non-silent audio at 1440p is **not verified**.
+  Receiver diagnostics indicated 48 kHz PCM. The initial recording and preview
+  buffers were silent. During the subsequent live preview, audio became nonzero
+  without another driver change: 10,452,871 nonzero bytes over 17,531 periods,
+  with prepare_error=0 and zero audio guard errors. This establishes non-silent
+  captured samples at 1440p59.94, not channel order or content A/V synchronization.
 - All C sanitizer tests, 47 Python tests, and shell syntax checks passed.
   `W=1` module builds passed for 7.2.6-1-cachyos, cached 7.2.3-1-cachyos,
   and 6.18.52-1-cachyos-lts. Only 7.2.6 was loaded on hardware for this release.
 
 Still pending: actual 1440p120 gameplay with 1080p60 capture, 60↔120 transitions,
-non-silent higher-rate audio, combined-mode cold boot and physical source/sink
+audio at 120 Hz input, combined-mode cold boot and physical source/sink
 hotplug. The measured 59.94 Hz result must not be presented as 120 Hz validation.
+
+The code commit's GitHub Actions checks also passed, including an Ubuntu 24.04
+kernel-header build. The restored live preview exceeded 9,500 error-free frames
+while receiving nonzero PCM. Physical 120 Hz gameplay remains untested.

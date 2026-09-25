@@ -130,9 +130,9 @@ configuration after capture stops. Unsupported formats now wait for a valid
 RGB8 SDR signal. Capture can continue while the connected monitor's RxSense is
 inactive. Transport failures still stop with a diagnostic error.
 
-Stereo audio was verified with the earlier 1080p source. The 1440p test opened
-48 kHz stereo PCM without DMA errors, but its recording was silent; non-silent
-audio at this input mode still needs verification.
+At 1440p59.94, the live preview also received nonzero 48 kHz stereo PCM with
+no audio DMA guard errors. Channel order and content-relative A/V synchronization
+still need a reference test.
 
 Close OBS/GC573 Preview, then run as your desktop user:
 

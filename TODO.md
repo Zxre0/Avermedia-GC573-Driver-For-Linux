@@ -83,7 +83,8 @@ separately; an unchecked item has not been demonstrated complete.
   report does not specify 120 Hz or constitute a latency measurement.
 - [ ] Validate simultaneous **actual 1440p120 input/passthrough and 1080p60 capture**.
   PS5 1440p59.94 → 1080p59.94 capture now passes; actual 120 Hz gameplay
-  and non-silent audio at the higher input mode still need validation.
+  and audio at 120 Hz input still need validation. Nonzero PCM at 1440p59.94
+  was observed during live preview with zero audio guard errors.
 - [ ] Validate combined-mode 60↔120 transitions, physical HDMI OUT picture/audio,
   cold boot and source/display hotplug. Check latency independently of preview.
 - [x] Build and install a GTK4 desktop app with RGB controls, live measured
