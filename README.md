@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.43.0 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.43.1 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -247,6 +247,10 @@ Successful registration reports `capture_error=0` and `capture_video_registered=
 Since 0.43.0, video/audio devices and RGB can register before HDMI video is
 available. HDMI setup continues inside the driver; `hdmi_ready=1` and a valid
 input are required for frames. Unknown hardware states still stop HDMI setup.
+Version 0.43.1 fixes startup stopping at `hdmi_phase=16`, `hdmi_error=-34`
+when receiver timing is not yet valid. The driver now repeats safe timing
+measurements until they settle; unsupported formats and partial programming
+failures still stop setup. This addresses a PS5 startup failure with HDCP disabled.
 A full power-off/power-on startup test remains pending.
 
 ### 4. Install the control app

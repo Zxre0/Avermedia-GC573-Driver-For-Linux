@@ -463,6 +463,17 @@ static ssize_t bringup_status_show(struct device *dev,
 			!!hdmi_start_phase, gc573_hdmi_ready(card), READ_ONCE(card->hdmi.phase),
 			READ_ONCE(card->hdmi.waiting), READ_ONCE(card->hdmi.error),
 			READ_ONCE(card->hdmi.polls), READ_ONCE(card->hdmi.tx_preserved));
+	if (capture_video && hdmi_start_phase) {
+		const struct gc573_receiver_video_result *r = &card->hdmi.receiver_video;
+
+		used += sysfs_emit_at(buf, used,
+			"hdmi_receiver_phase=%u\nhdmi_receiver_width=%u\nhdmi_receiver_height=%u\n"
+			"hdmi_receiver_reference_half_khz=%u\nhdmi_receiver_pixel_min_khz=%u\nhdmi_receiver_pixel_max_khz=%u\n"
+			"hdmi_receiver_clock_samples=%u\nhdmi_receiver_measurement_restored=%u\nhdmi_receiver_writes=%u\n",
+			READ_ONCE(r->phase), READ_ONCE(r->width), READ_ONCE(r->height),
+			READ_ONCE(r->reference_half_khz), READ_ONCE(r->pixel_min_khz), READ_ONCE(r->pixel_max_khz),
+			READ_ONCE(r->clock_samples), READ_ONCE(r->measurement_restored), READ_ONCE(r->writes_started));
+	}
 	if (capture_video)
 		used += sysfs_emit_at(buf, used,
 			"passthrough_startup_error=%d\npassthrough_startup_phase=%u\n"
@@ -1618,4 +1629,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.43.0");
+MODULE_VERSION("0.43.1");

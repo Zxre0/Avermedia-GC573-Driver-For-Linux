@@ -27,6 +27,47 @@ int main(void)
 	struct gc573_hdmi h = { .phase = 6 };
 	unsigned int i, count;
 
+	/* Model acquisition reporting lock while the receiver timing is invalid.
+	 * Wait through invalid geometry, then acquire without resetting the chip.
+	 */
+	h.phase = 16;
+	f.receiver[0][0x9d] = f.receiver[0][0x9e] = 0;
+	assert(!tick(&f, &h) && h.phase == 16 && h.waiting && !h.error);
+	assert(h.receiver_video.phase == 4 && h.receiver_video.writes_started == 3);
+	f = prepared();
+	assert(!tick(&f, &h) && h.phase == 17 && h.receiver_video.output_enabled);
+
+	/* A quantized clock sample just outside the bound must not bypass it.
+	 * Repeat only restored measurement latches, then configure on valid data.
+	 */
+	f = prepared();
+	h = (struct gc573_hdmi) { .phase = 16 };
+	f.receiver[0][0x99] = 66;
+	assert(!tick(&f, &h) && h.waiting && h.phase == 16 && !h.error);
+	assert(h.receiver_video.pixel_max_khz > 150000 && h.receiver_video.measurement_restored);
+	assert(!h.receiver_video.output_enabled && h.receiver_video.phase == 5);
+	/* Restoration, bank verification and observation-only phase are required. */
+	h.receiver_video.measurement_restored = 0;
+	assert(!gc573_receiver_video_retryable(&h.receiver_video, -ERANGE));
+	h.receiver_video.measurement_restored = 1;
+	h.receiver_video.bank_verified = 0;
+	assert(!gc573_receiver_video_retryable(&h.receiver_video, -ERANGE));
+	h.receiver_video.bank_verified = 1;
+	h.receiver_video.phase = 6;
+	assert(!gc573_receiver_video_retryable(&h.receiver_video, -ERANGE));
+	f = prepared();
+	assert(!tick(&f, &h) && h.phase == 17 && h.receiver_video.output_enabled);
+
+	/* An invalid configured reference or unsupported format stays an error. */
+	f = prepared(); f.receiver[1][0xfd] = 0;
+	h = (struct gc573_hdmi) { .phase = 16 };
+	assert(tick(&f, &h) == -ERANGE && !h.waiting);
+	f = prepared(); f.receiver[2][0x15] = 0x20;
+	h = (struct gc573_hdmi) { .phase = 16 };
+	assert(tick(&f, &h) == -EOPNOTSUPP && !h.waiting);
+
+	f = prepared();
+	h = (struct gc573_hdmi) { .phase = 6 };
 	f.receiver[0][0x13] = 0;
 	for (i = 0; i < 100; i++)
 		assert(!tick(&f, &h) && h.waiting && h.phase == 6 && !f.writes);

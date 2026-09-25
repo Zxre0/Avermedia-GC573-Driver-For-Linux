@@ -126,6 +126,7 @@ static int rv_output(const struct gc573_block_io *io,
 	if (ret)
 		return ret;
 	ref = r->last.data[0] * 100;
+	r->reference_half_khz = ref;
 	ret = rv_bank(io, r, 0);
 	if (ret)
 		return ret;
@@ -153,6 +154,7 @@ static int rv_output(const struct gc573_block_io *io,
 		if (ret)
 			return ret;
 	}
+	r->measurement_restored = 1;
 	if (!sum || ref < 14000 || ref > 24000)
 		return -ERANGE;
 	r->pixel_min_khz = ref * 5 * 512 / sum;
@@ -167,6 +169,23 @@ static int rv_output(const struct gc573_block_io *io,
 	}
 	r->output_enabled = 1;
 	return 0;
+}
+
+/* Bank selection and the clock latch are safe to repeat only after their
+ * readbacks confirm restoration. This never retries output/reset programming
+ * (phase 6), bus failures, unsupported formats or a bad reference clock.
+ */
+int gc573_receiver_video_retryable(const struct gc573_receiver_video_result *r, int error)
+{
+	if (error == -ENOLINK && r->phase == 1 && !r->writes_started)
+		return 1;
+	if (!r->bank_verified || r->bank)
+		return 0;
+	if (r->phase == 4 && (error == -EAGAIN || error == -ERANGE))
+		return 1;
+	return error == -ERANGE && r->phase == 5 && r->measurement_restored &&
+		r->clock_samples == 5 && r->reference_half_khz >= 14000 &&
+		r->reference_half_khz <= 24000;
 }
 
 int gc573_receiver_video(const struct gc573_block_io *io,

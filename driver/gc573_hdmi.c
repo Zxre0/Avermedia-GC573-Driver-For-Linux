@@ -87,7 +87,7 @@ static int phase(const struct gc573_block_io *io, struct gc573_hdmi *h)
 		return receiver_wait(io, h, 0);
 	case 16:
 		ret = gc573_receiver_video(io, &h->signal, &h->receiver_video, 1);
-		return ret == -ENOLINK && !h->receiver_video.writes_started ? -EAGAIN : ret;
+		return gc573_receiver_video_retryable(&h->receiver_video, ret) ? -EAGAIN : ret;
 	case 17:
 		return (io->read(io->ctx, 0x1004) & 1) &&
 			gc573_mode_supported(io->read(io->ctx, 0x1008), io->read(io->ctx, 0x100c)) ? 0 : -EAGAIN;

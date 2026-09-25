@@ -98,13 +98,14 @@ struct gc573_receiver_video_result {
 	unsigned int phase, transactions, writes_started, last_reg, bank, bank_verified;
 	unsigned int timing_samples, width, height, htotal, vtotal, interlaced, complete;
 	unsigned int expected, observed, pixel_min_khz, pixel_max_khz, steps_verified, output_enabled;
-	unsigned int clock_samples, counts[5];
+	unsigned int clock_samples, counts[5], reference_half_khz, measurement_restored;
 	unsigned char timing[2][19], extra[4], avi[5], output[7];
 	struct gc573_block_result last;
 };
 int gc573_receiver_video(const struct gc573_block_io *io,
 			 struct gc573_signal_result *signal,
 			 struct gc573_receiver_video_result *r, unsigned int enable);
+int gc573_receiver_video_retryable(const struct gc573_receiver_video_result *r, int error);
 
 struct gc573_write_test_result {
 	struct gc573_block_result write;

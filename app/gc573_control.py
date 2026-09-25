@@ -213,7 +213,8 @@ def run_gui():
                     if values.get('hdmi_error', 0):
                         self.details.set_text(f"HDMI setup stopped at phase {values.get('hdmi_phase', 0)} (error {values['hdmi_error']}).")
                     elif values.get('hdmi_deferred') and not values.get('hdmi_ready'):
-                        self.details.set_text('Driver loaded · waiting for supported HDMI input…')
+                        self.details.set_text('Waiting for stable HDMI timing…' if values.get('hdmi_phase') == 16
+                                              else 'Driver loaded · waiting for supported HDMI input…')
                         self.audio.set_text('HDMI audio · waiting for input')
                     if values.get('led_error',0):
                         self.message.set_text('The driver reported a lighting error.')

@@ -120,6 +120,35 @@ cold-prefix handoff before any HDMI wait and service restart preserving a loaded
 device while input is absent. A fresh physical unplugged boot and later cable
 connection remain a separate hardware test.
 
+### Receiver timing acquisition correction (0.43.1, 2026-09-24)
+
+After a user-reported fresh boot with a PS5 and HDCP disabled, 0.43.0 had
+registered video/audio but stopped at HDMI phase 16 with `hdmi_error=-34`
+(`ERANGE`). OBS timed out waiting for frames and ALSA preparation returned
+`ENOLINK`. The old status did not expose the inner receiver phase, so the exact
+failed geometry or clock sample is unknown. A later receiver snapshot and the
+unchanged guarded output operation both succeeded at 1920×1080.
+
+0.43.1 retries inconsistent/invalid timing snapshots after verified bank
+restoration, and out-of-range clock measurements after all five latch cycles
+complete with readback verification. Output programming, transport failures,
+unsupported formats and invalid configured reference clocks remain fatal.
+The supported-mode and pixel-clock bounds are unchanged. New status fields
+expose the inner receiver phase and measurement results for future diagnosis.
+
+Protocol tests cover invalid geometry and a quantized clock reading outside
+the limit, each followed by successful acquisition; they also check that missing
+restoration or bank verification, partial output programming, invalid reference
+clocks and unsupported formats cannot use this retry path. Existing transfer
+failure injection still passes, as do all 32 Python tests and the kernel build.
+
+On CachyOS kernel 7.2.6-1-cachyos, after recovering the receiver output, 0.43.1
+captured 120 frames at 59.94 fps concurrently with three seconds of stereo
+48 kHz PCM containing nonzero samples. Video and audio buffer guards passed.
+OBS reopened the existing scene with 1080p59.94 video and stereo 48 kHz audio;
+saved solid-green lighting was restored. This is a recovery test on the current
+boot, not validation of another fresh boot with the fix installed.
+
 ### Test commands
 
 `tools/test.sh` runs the C protocol harnesses with AddressSanitizer and
