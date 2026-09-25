@@ -9,6 +9,7 @@ struct fake {
 	unsigned int writes, fifo_reads, waits, starts, acknowledgements;
 	unsigned int last_command, completion, stale_status;
 	unsigned int gpio_writes, sleeps, drop_gpio_at;
+	unsigned int early_status, use_start_sample;
 	int timeout, sticky_status, progress;
 };
 
@@ -95,10 +96,21 @@ static int fake_wait(void *ctx, unsigned int *status, unsigned int *saw_clear)
 	return -ETIMEDOUT;
 }
 
+static unsigned int fake_start_read(void *ctx)
+{
+	struct fake *f = ctx;
+
+	fake_write(ctx, GC573_BLOCK_COMMAND, 0x08);
+	/* Busy is visible at START, but already over when the sleepable poll runs. */
+	f->regs[GC573_BLOCK_STATUS / 4] = f->early_status;
+	return f->early_status;
+}
+
 static int run(struct fake *f, struct gc573_block_result *result)
 {
 	const struct gc573_block_io io = {
 		.ctx = f, .read = fake_read, .write = fake_write, .wait = fake_wait,
+		.start_read = f->use_start_sample ? fake_start_read : NULL,
 	};
 	unsigned int saved = f->regs[GC573_BLOCK_DIVIDER / 4];
 	int ret = gc573_block_identify(&io, result);
@@ -161,6 +173,33 @@ int main(void)
 	assert(run(&f, &result) == -ETIMEDOUT && !f.fifo_reads);
 	assert(result.prepared_status == 4 && !result.completion_armed);
 	assert(result.started == 1);
+	/* Capturing the short busy interval prevents a false timeout even when
+	 * every later poll sees DONE. An unchanging stale DONE still fails.
+	 */
+	f = (struct fake) { .completion = 4, .sticky_status = 1,
+		.use_start_sample = 1, .early_status = 8 };
+	f.regs[GC573_BLOCK_STATUS / 4] = 4;
+	assert(run(&f, &result) == 0 && result.bytes_read == 4);
+	assert(result.start_status == 8 && result.completion_armed && f.waits == 1);
+	f = (struct fake) { .completion = 4, .sticky_status = 1,
+		.use_start_sample = 1, .early_status = 4 };
+	f.regs[GC573_BLOCK_STATUS / 4] = 4;
+	assert(run(&f, &result) == -ETIMEDOUT && !f.fifo_reads);
+	assert(!result.completion_armed && result.start_status == 4);
+	/* Invalid BAR data stops before waiting or reading FIFO; true busy still
+	 * times out rather than accepting a completion that never arrived.
+	 */
+	f = (struct fake) { .use_start_sample = 1, .early_status = 0xffffffff };
+	assert(run(&f, &result) == -ENODEV && !f.waits && !f.fifo_reads);
+	f = (struct fake) { .use_start_sample = 1, .early_status = 0xeeeeeeee };
+	assert(run(&f, &result) == -ENODEV && !f.waits && !f.fifo_reads);
+	f = (struct fake) { .completion = 8, .sticky_status = 1,
+		.use_start_sample = 1, .early_status = 8 };
+	f.regs[GC573_BLOCK_STATUS / 4] = 4;
+	assert(run(&f, &result) == -ETIMEDOUT && !f.fifo_reads);
+	/* Preparation already cleared the old result: immediate DONE is fresh. */
+	f = (struct fake) { .use_start_sample = 1, .early_status = 4 };
+	assert(run(&f, &result) == 0 && result.bytes_read == 4 && !f.waits);
 	/* With an old result, observing 4 -> 8 -> 4 establishes freshness. */
 	f = (struct fake) { .completion = 4, .sticky_status = 1, .progress = 1 };
 	f.regs[GC573_BLOCK_STATUS / 4] = 4;

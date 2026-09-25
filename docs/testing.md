@@ -327,3 +327,22 @@ preview recovered with intact guards over 3,500 frames. Module builds also
 passed for 7.2.3-1-cachyos and 6.18.52-1-cachyos-lts. A live 120 Hz source has
 not yet been supplied after this patch; successful 120 Hz capture and transitions
 remain unverified.
+
+
+## Missed I2C busy interval (0.45.3, 2026-09-24)
+
+While observing 0.45.2 at 1440p59.94, a read-only link snapshot stopped with
+-ETIMEDOUT at address 0x38, register 0x55. The saved transaction had initial,
+prepared, final and cleanup status 4, completion_armed=0 and zero FIFO bytes.
+A private read-only diagnostic, with capture/audio stopped, confirmed the
+controller still reported 4. This is consistent with the CPU missing the short
+busy interval; no evidence of a 120 Hz transition accompanied this failure.
+
+0.45.3 protects START plus the first status sample against CPU interruption.
+Regression tests model busy visible only in that first sample, stale DONE,
+invalid BAR values, a true busy timeout, and immediate completion after cleared
+preparation. All C sanitizer tests, 47 Python tests and shell checks passed.
+W=1 builds passed for 7.2.6-1-cachyos, cached 7.2.3-1-cachyos and
+6.18.52-1-cachyos-lts. The loaded 7.2.6 build restored HDMI, live scaled capture,
+nonzero audio and saved RGB. The early sample now observes 0 followed by DONE 4.
+Actual 1440p120 input and 60↔120 transitions still need a live retest.

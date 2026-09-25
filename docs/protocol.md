@@ -219,3 +219,21 @@ finishes the two output-control writes once the link is ready. It does not repla
 analog/reset programming merely because a lock bit is late. Source snapshot
 changes cancel the pending continuation; I2C errors and incomplete writes still
 stop. Both TX1 and TX2 expose their pending state and last link status in sysfs.
+
+
+### First read-status sample (0.45.3)
+
+A live failure at 1440p59.94 stopped the snapshot at RX address 0x38 register
+0x55: initial, prepared, final and cleanup status were all 4, completion_armed
+was 0, and no FIFO bytes were consumed. A stopped diagnostic also found status
+4. The driver could not establish freshness, consistent with missing the busy
+interval between START and the first scheduled poll.
+
+The kernel now issues READ START and immediately reads status with local IRQs
+saved/disabled for those two MMIO operations only. The generic transaction uses
+this early sample to arm completion; the ordinary sleeping poll follows with IRQs
+restored. An unchanged stale DONE still times out. Invalid BAR reads, actual
+busy timeouts and write errors retain their existing failure handling; no
+transaction is retried or accepted merely because a timeout ended with DONE.
+Runtime status exposes the last link-read address, register, prepared/start/final
+status and completion_armed so future failures need no private memory inspection.

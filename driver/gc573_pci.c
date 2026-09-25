@@ -298,6 +298,24 @@ static void gc573_block_write(void *ctx, unsigned int offset, unsigned int value
 	card->mmio_writes++;
 }
 
+static unsigned int gc573_block_start_read(void *ctx)
+{
+	struct gc573_device *card = ctx;
+	unsigned long flags;
+	unsigned int status;
+
+	/* Only two MMIO accesses are protected, never the sleeping completion poll.
+	 * Otherwise an interrupt/preemption between START and the first sample can
+	 * hide the entire busy interval and leave a fresh result looking stale.
+	 */
+	local_irq_save(flags);
+	iowrite32(0x08, card->bar + GC573_BLOCK_COMMAND);
+	status = ioread32(card->bar + GC573_BLOCK_STATUS);
+	local_irq_restore(flags);
+	card->mmio_writes++;
+	return status;
+}
+
 static int gc573_block_wait(void *ctx, unsigned int *status,
 			    unsigned int *saw_clear)
 {
@@ -1459,6 +1477,12 @@ static ssize_t bringup_status_show(struct device *dev,
 			"external_output_waiting=%u\nexternal_output_tx_status=0x%02x\n",
 			p->video.waiting_link, p->video.tx_status);
 		used += sysfs_emit_at(buf, used,
+			"external_link_address=0x%x\nexternal_link_reg=0x%x\n"
+			"external_link_prepared=0x%x\nexternal_link_start=0x%x\n"
+			"external_link_status=0x%x\nexternal_link_armed=%u\n",
+			p->link.last_address, p->link.last_reg, p->link.last.prepared_status,
+			p->link.last.start_status, p->link.last.status, p->link.last.completion_armed);
+		used += sysfs_emit_at(buf, used,
 			"external_format_waits=%u\nexternal_format_rejected=%u\n"
 			"external_format_avi=0x%x\nexternal_format_depth=0x%x\nexternal_format_cf=0x%x\n"
 			"external_format_rx13=0x%x\nexternal_candidate_pixel_khz=%u\n",
@@ -1611,6 +1635,7 @@ static int gc573_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			.ctx = card,
 			.read = gc573_block_read,
 			.write = gc573_block_write,
+			.start_read = gc573_block_start_read,
 			.wait = gc573_block_wait,
 			.sleep_ms = gc573_sleep_ms,
 			.wait_write = gc573_block_wait_write,
@@ -1801,6 +1826,7 @@ static int gc573_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (capture_once || capture_video) {
 		const struct gc573_block_io io = {
 			.ctx = card, .read = gc573_block_read, .write = gc573_block_write,
+			.start_read = gc573_block_start_read,
 			.wait = gc573_block_wait, .sleep_ms = gc573_sleep_ms,
 			.wait_write = gc573_block_wait_write, .time_ms = gc573_time_ms,
 			.ready = gc573_hdmi_ready,
@@ -1866,4 +1892,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.45.2");
+MODULE_VERSION("0.45.3");

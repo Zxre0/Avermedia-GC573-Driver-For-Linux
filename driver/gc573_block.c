@@ -122,9 +122,19 @@ static int gc573_block_identify_state(const struct gc573_block_io *io,
 	}
 	/* If still set, require clear then set after START before trusting RX. */
 	result->completion_armed = !(result->status & GC573_BLOCK_READ_DONE);
-	io->write(io->ctx, GC573_BLOCK_COMMAND, 0x08);
 	result->started = 1;
-	ret = io->wait(io->ctx, &result->status, &result->completion_armed);
+	ret = 0;
+	if (io->start_read) {
+		result->start_status = io->start_read(io->ctx);
+		result->status = result->start_status;
+		ret = gc573_block_observe(result->status, &result->completion_armed);
+	} else {
+		io->write(io->ctx, GC573_BLOCK_COMMAND, 0x08);
+	}
+	if (!ret)
+		ret = io->wait(io->ctx, &result->status, &result->completion_armed);
+	else if (ret > 0)
+		ret = 0;
 	result->irq_status = io->read(io->ctx, GC573_IRQ_STATUS);
 	/* Match the vendor's post-read command before accessing the RX FIFO. */
 	io->write(io->ctx, GC573_BLOCK_COMMAND, 0x10);

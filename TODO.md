@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.45.2. Hardware validation and implementation are tracked
+Current driver: 0.45.3. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
@@ -88,6 +88,8 @@ separately; an unchecked item has not been demonstrated complete.
 - [ ] Validate simultaneous **actual 1440p120 input/passthrough and 1080p60 capture**.
   User reports the 0.45.1 120 Hz test failed. The observed final-link-check stop
   is addressed in 0.45.2; the live 120 Hz retest remains pending.
+  Version 0.45.3 also protects the first I2C status sample after a missed busy
+  interval stopped the 60 Hz observation run; stale results remain rejected.
   PS5 1440p59.94 → 1080p59.94 capture passes; actual 120 Hz gameplay
   and audio at 120 Hz input still need validation. Nonzero PCM at 1440p59.94
   was observed during live preview with zero audio guard errors.

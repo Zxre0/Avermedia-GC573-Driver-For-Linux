@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.45.2 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.45.3 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -110,7 +110,7 @@ The preview works in **capture** and **scaled** modes with HDCP disabled. It
 shows HDMI input resolution/rate separately from preview resolution and its
 capture frame-rate limit. Passthrough-only mode does not provide host capture.
 
-## Experimental 1440p passthrough with 1080p capture (0.45.2)
+## Experimental 1440p passthrough with 1080p capture (0.45.3)
 
 The new `scaled` mode keeps HDMI OUT at the console's input timing while the
 FPGA scales the capture image to 1080p (or 720p when requested by V4L2). Capture
@@ -135,6 +135,9 @@ link-ready check and left the internal transmitter at the previous high TMDS
 ratio. Version 0.45.2 adds a checked continuation and remeasures the source
 before resuming. **Successful 120 Hz capture is still awaiting a live test**;
 the transition fix does not by itself establish 120 Hz support.
+Version 0.45.3 also samples I2C status immediately after starting each read to
+avoid missing the short busy interval under CPU load. Stale completion values
+remain rejected.
 
 At 1440p59.94, the live preview also received nonzero 48 kHz stereo PCM with
 no audio DMA guard errors. Channel order and content-relative A/V synchronization

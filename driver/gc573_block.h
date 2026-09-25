@@ -36,6 +36,8 @@ struct gc573_block_io {
 	void (*control_lock)(void *ctx);
 	void (*control_unlock)(void *ctx);
 	unsigned int owned_irq_mask; /* Runtime video/audio IRQs, never I2C. */
+	/* Issue READ START and sample status before CPU scheduling can hide busy. */
+	unsigned int (*start_read)(void *ctx);
 };
 
 struct gc573_gpio_result {
@@ -66,6 +68,7 @@ struct gc573_block_result {
 	unsigned int initial_status;
 	unsigned int initial_divider;
 	unsigned int prepared_status;
+	unsigned int start_status;
 	unsigned int completion_armed;
 	unsigned int started;
 	unsigned int irq_enable;
