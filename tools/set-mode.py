@@ -16,9 +16,10 @@ def check_acquisition(mode):
         raise RuntimeError('Expected exactly one loaded GC573 status node')
     for _ in range(30):
         data = dict(line.split('=', 1) for line in paths[0].read_text().splitlines() if '=' in line)
-        if (data.get('passthrough_only') == '1') != (mode == 'passthrough'):
+        if ((data.get('passthrough_only') == '1') != (mode == 'passthrough') or
+                (data.get('scaled_capture') == '1') != (mode == 'scaled')):
             raise RuntimeError('Loaded mode does not match the requested mode')
-        prefix = 'external' if mode == 'passthrough' else 'hdmi'
+        prefix = 'external' if mode == 'passthrough' else 'combined' if mode == 'scaled' else 'hdmi'
         if int(data.get(prefix + '_error', '0')):
             raise RuntimeError(f"HDMI setup stopped at phase {data.get(prefix + '_phase')}: "
                                f"error {data[prefix + '_error']}")
@@ -30,7 +31,7 @@ def check_acquisition(mode):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('capture', 'passthrough'))
+    parser.add_argument('mode', choices=('capture', 'scaled', 'passthrough'))
     args = parser.parse_args()
     if os.geteuid() == 0:
         parser.error('Run as your desktop user; the installed helper handles module loading.')

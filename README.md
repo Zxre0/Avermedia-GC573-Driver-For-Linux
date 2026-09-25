@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.44.0 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.45.0 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -48,7 +48,9 @@ Those are **card specifications**, not features already working in this driver.
 | --- | --- |
 | 1080p60 video | Hardware verified in OBS; RGB 8-bit HDMI input → V4L2 BGR24 |
 | 720p and lower-rate 1080p | Bounded support implemented; additional source modes need hardware validation |
-| High-rate native capture / HDR | Not implemented; use 1080p60 SDR for OBS |
+| Full-rate high-resolution capture / HDR | Not implemented; host output remains at most 1080p60 SDR |
+| Hardware scaling | 1080p input → 720p capture verified; independent capture pacing verified at 30 fps |
+| 1440p120 HDMI OUT + 1080p60 capture | Experimental combined mode implemented; actual 1440p120 source validation still pending |
 | High-rate HDMI OUT | Experimental RGB8 SDR mode: display-matched timings capped at 1080p240, 1440p144 and 4K60; host capture disabled; see limitations below |
 | HDMI audio | Stereo S16_LE, 48 kHz; non-silent stereo audio recorded in OBS; channel order and content A/V sync still need a reference test |
 | RGB | Generated rainbow, solid color, off and brightness; controls tested during capture; user confirms RGB works great |
@@ -104,12 +106,50 @@ local playback does not prove that viewers hear it. See
 [Discord's screen-sharing guide](https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share).
 An actual Discord call has not been tested by this project.
 
-**This app requires capture mode**, currently verified at 1080p60 RGB8 SDR with
-HDCP disabled. It does not make passthrough-only mode capturable. Simultaneous
-1440p120 HDMI OUT plus 1080p60 capture still needs driver-side scaling/frame-rate
-conversion (or another verified capture/conversion path). That is tracked in
-[TODO.md](TODO.md); it is not an implemented feature. Capture mode remains the
-default for sharing your console.
+The preview works in **capture** and **scaled** modes with HDCP disabled. It
+shows HDMI input resolution/rate separately from preview resolution and its
+capture frame-rate limit. Passthrough-only mode does not provide host capture.
+
+## Experimental 1440p passthrough with 1080p capture (0.45.0)
+
+The new `scaled` mode keeps HDMI OUT at the console's input timing while the
+FPGA scales the capture image to 1080p (or 720p when requested by V4L2). Capture
+requests are paced before DMA, so unwanted source frames are not transferred
+over PCIe. At 1080p60 BGR24 the video payload is about 373 MB/s; scaling happens
+on the card, rather than receiving full-resolution 1440p120 on the host.
+
+**Implemented, but not yet verified with an actual 1440p120 source.** Hardware
+tests on the current PS5 1080p59.94 signal verified 1080p→720p FPGA scaling,
+30 fps capture pacing, live 1080p preview, stereo audio, and concurrent HDMI
+monitoring without DMA guard failures. Dual-pixel receiver programming and the
+1440p→1080p scaler configuration pass hardware-independent tests. These are
+not substitutes for a real 1440p120 picture, audio and passthrough test.
+
+Close OBS/GC573 Preview, then run as your desktop user:
+
+```sh
+python3 tools/set-mode.py scaled
+~/.local/bin/gc573-preview
+```
+
+The selection is saved for the installed boot service. On a cold start, the
+normal checked HDMI preparation runs first; the service then enables the
+combined profile. Cold boot and source-mode changes in this new mode still
+need hardware validation. Use `python3 tools/set-mode.py capture` to return to
+the conservative 1080p source profile.
+
+On PS5, disable HDCP and HDR/VRR, select **1440p**, run **Test 1440p Output**, and
+set **120 Hz Output** to **Automatic**. A compatible game must request 120 Hz;
+the home screen may still run at 60 Hz. Use stereo Linear PCM audio. The driver
+reads the connected monitor's EDID and offers only supported RGB8 SDR modes up
+to 1440p120. It does not force the PS5 to change a manually selected resolution.
+For OBS, choose 1920×1080, BGR3/BGR24 and 60 fps. Play on the HDMI OUT monitor;
+share the preview/OBS window on Discord.
+
+The monitor used for development advertises 2560×1440 at 59.95 and 119.998 Hz in
+the combined profile. 144 Hz and 4K timings are omitted from this capture mode.
+The separate passthrough-only mode below retains its broader timing list.
+
 
 ## Experimental high-rate HDMI passthrough (0.44.0)
 
@@ -120,8 +160,8 @@ HDMI 2.0 limits. It enables SCDC scrambling and the high-speed clock ratio above
 1080p capture limit on HDMI OUT.
 
 **OBS video and ALSA capture are disabled in this mode**, including when the
-source sends 1080p. There is no high-rate-to-1080p downscaler implemented. RGB
-controls remain available. Close OBS and other capture applications, then run
+source sends 1080p. Use the experimental `scaled` mode above when host capture
+is needed. RGB controls remain available. Close OBS and other capture applications, then run
 as your normal desktop user after installing the helper:
 
 ```sh
@@ -162,7 +202,7 @@ error, inspect diagnostics before retrying; failed hardware writes are not repla
 
 Clone or download this repository into a stable directory owned by your normal
 desktop account. The driver can load with HDMI disconnected or the source off.
-For capture, use **1080p60, RGB 8-bit, SDR** on HDMI IN with **48 kHz stereo PCM**
+For the default capture mode, use **1080p60, RGB 8-bit, SDR** on HDMI IN with **48 kHz stereo PCM**
 audio. To install, run:
 
 ```sh

@@ -21,6 +21,27 @@ class StartupTest(TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
+    def test_scaled_start_waits_for_deferred_capture_and_preserves_live_scaled_mode(self):
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'initialize') as base, mock.patch.object(startup, 'step') as step:
+            status.exists.return_value = True
+            status.read_text.return_value = 'hdmi_ready=0'
+            with self.assertRaises(startup.WaitingForSignal):
+                startup.initialize_scaled()
+            step.assert_not_called()
+            status.read_text.return_value = 'hdmi_ready=1'
+            startup.initialize_scaled()
+            self.assertEqual(step.call_args.args[0], '--scaled-video')
+            step.reset_mock()
+            base.reset_mock()
+            status.read_text.return_value = 'scaled_capture=1\ncombined_error=0'
+            startup.initialize_scaled()
+            base.assert_not_called()
+            step.assert_not_called()
+            status.read_text.return_value = 'scaled_capture=1\ncombined_error=-110'
+            with self.assertRaises(RuntimeError):
+                startup.initialize_scaled()
+            step.assert_not_called()
+
     def test_existing_stream_is_preserved(self):
         with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
             status.exists.return_value = True

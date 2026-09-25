@@ -73,7 +73,7 @@ static int rv_set(const struct gc573_block_io *io,
 }
 
 static int rv_output(const struct gc573_block_io *io,
-		     struct gc573_receiver_video_result *r)
+		     struct gc573_receiver_video_result *r, unsigned int extended)
 {
 	/* 42134: RGB, <=1920 pixels, <=150 MHz; 3d374/3d280 single TTL.
 	 * 42cac: original RGB pass-through policy, no colorspace conversion.
@@ -108,11 +108,12 @@ static int rv_output(const struct gc573_block_io *io,
 		{ 15, 7, 0, 255, 0 }, { 0x4f, 0xa0, 0xa0, 0xa0, 0 },
 		{ 0x4f, 0xa0, 0x80, 0xa0, 0 },
 	};
-	unsigned int i, ref, counter, sum = 0;
+	unsigned int i, ref, counter, sum = 0, dual, bank = 0;
 	int ret;
 
 	r->phase = 5;
-	if (!gc573_mode_supported(r->width, r->height) || r->interlaced ||
+	if (!(gc573_mode_supported(r->width, r->height) ||
+	      (extended && r->width == 2560 && r->height == 1440)) || r->interlaced ||
 	    (r->avi[0] & 0x60) || (r->timing[1][0] & 0xf0) ||
 	    (r->extra[3] & 0x20) || (r->output[0] & 0xc0) != 0x40)
 		return -EOPNOTSUPP;
@@ -159,13 +160,35 @@ static int rv_output(const struct gc573_block_io *io,
 		return -ERANGE;
 	r->pixel_min_khz = ref * 5 * 512 / sum;
 	r->pixel_max_khz = (ref + 99) * 5 * 512 / sum;
-	if (r->pixel_min_khz < 70000 || r->pixel_max_khz > 150000)
+	if (r->pixel_min_khz < 70000 || r->pixel_max_khz > (extended ? 510000U : 150000U))
 		return -ERANGE;
+	dual = extended && (r->width > 1920 || r->pixel_max_khz > 150000);
 	r->phase = 6;
 	for (i = 0; i < sizeof(ops) / sizeof(ops[0]); i++) {
-		ret = rv_set(io, r, ops[i]);
-		if (ret)
-			return ret;
+		unsigned char op[5];
+		unsigned int j;
+		for (j = 0; j < 5; j++) op[j] = ops[i][j];
+		if (dual && bank == 1) {
+			if (op[0] == 0xc1 && op[1] == 2) op[2] = 2;
+			if (op[0] == 0xbd) op[2] = 0x10;
+			if (op[0] == 0xc4) op[2] = 0x20;
+			if (op[0] == 0xc5 && op[1] == 255) { op[0] = 0xc6; op[2] = 0; }
+		}
+		ret = rv_set(io, r, op);
+		if (ret) return ret;
+		if (op[0] == 15) bank = op[2] & 7;
+		/* Official dual-TTL mode sets C0 bit0 after selecting its clock. */
+		if (dual && bank == 1 && op[0] == 0xc1 && op[1] == 0x20) {
+			const unsigned char select[] = {0xc0, 1, 1, 1, 0};
+			ret = rv_set(io, r, select);
+			if (ret) return ret;
+		}
+		/* Release both pixel lanes after the C5 reset pulse. */
+		if (dual && bank == 1 && op[0] == 0xc5 && op[1] == 1 && !op[2]) {
+			const unsigned char release[] = {0xc5, 1, 1, 1, 0};
+			ret = rv_set(io, r, release);
+			if (ret) return ret;
+		}
 	}
 	r->output_enabled = 1;
 	return 0;
@@ -257,7 +280,7 @@ int gc573_receiver_video(const struct gc573_block_io *io,
 	if (!r->width || !r->height || r->width >= r->htotal || r->height >= r->vtotal)
 		return -ERANGE;
 	if (enable) {
-		ret = rv_output(io, r);
+		ret = rv_output(io, r, enable == 2);
 		if (ret)
 			return ret;
 	}

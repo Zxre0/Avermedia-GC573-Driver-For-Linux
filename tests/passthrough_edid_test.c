@@ -56,6 +56,10 @@ int main(int argc, char **argv)
 			sum += out.data[i * 128 + j];
 		assert(!(sum & 255));
 	}
+	assert(!gc573_scaled_edid(e, 256, &out));
+	assert(out.video_codes == 0 && out.timings == 1);
+	assert((out.data[54 + 2] | ((out.data[54 + 4] & 0xf0) << 4)) == 2560);
+
 	memcpy(bad, e, 512);
 	bad[1] ^= 1;
 	assert(gc573_passthrough_edid(bad, 256, &out) == -EBADMSG);

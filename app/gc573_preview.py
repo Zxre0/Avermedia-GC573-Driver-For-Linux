@@ -31,12 +31,15 @@ class LatestFrame:
 def capture_problem(values):
     if values.get('passthrough_only'):
         return 'Passthrough-only mode. Switch to capture mode to preview or share your PS5.'
+    if values.get('combined_error'):
+        return f"Scaled capture setup stopped (error {values['combined_error']}). Check GC573 Control."
     if values.get('hdmi_error'):
         return f"HDMI setup stopped (error {values['hdmi_error']}). Check GC573 Control."
     if not values.get('hdmi_ready', 1) or not values.get('input_present'):
-        return 'Waiting for your console. Use 1080p SDR with HDCP disabled.'
-    if (values.get('input_width'), values.get('input_height')) not in ((1920, 1080), (1280, 720)):
-        return 'Unsupported input. Set your console to 1080p SDR for capture.'
+        return 'Waiting for your console. Use SDR with HDCP disabled.'
+    allowed = ((1920, 1080), (1280, 720), (2560, 1440)) if values.get('scaled_capture') else ((1920, 1080), (1280, 720))
+    if (values.get('input_width'), values.get('input_height')) not in allowed:
+        return 'Unsupported input. Use 1080p SDR, or 1440p SDR in scaled capture mode.'
     return None
 
 
@@ -304,7 +307,9 @@ def run_gui(args):
                     self.show_message(problem)
                     self.status.set_text('No supported capture signal')
                     return True
-                size = values['input_width'], values['input_height']
+                size = (1920, 1080) if values.get('scaled_capture') else (values['input_width'], values['input_height'])
+                if values.get('input_width') == 1280:
+                    size = (1280, 720)
                 if self.video and (self.active_device != device or self.active_size != size):
                     self.stop()
                 if not self.video:
@@ -319,7 +324,10 @@ def run_gui(args):
                 if time.monotonic() - self.last_frame > 3:
                     self.show_message('Waiting for video frames…')
                 sound = self.audio_message or ('Sound on' if self.audio else 'Sound off')
-                self.status.set_text(f'{size[0]} × {size[1]} · {values.get("input_fps_milli", 0)/1000:.2f} fps · {sound}')
+                input_fps = values.get('input_fps_milli', 0) / 1000
+                capture_fps = min(input_fps, values.get('capture_fps_limit', 60))
+                source = f"HDMI {values['input_width']} × {values['input_height']} · {input_fps:.2f} Hz"
+                self.status.set_text(f'{source}  →  Preview {size[0]} × {size[1]} · up to {capture_fps:.2f} fps · {sound}')
             except (OSError, RuntimeError, GLib.Error) as exc:
                 self.stop()
                 self.want_running = False

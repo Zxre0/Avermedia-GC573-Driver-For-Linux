@@ -216,6 +216,13 @@ def run_gui():
                         self.details.set_text('Waiting for stable HDMI timing…' if values.get('hdmi_phase') == 16
                                               else 'Driver loaded · waiting for supported HDMI input…')
                         self.audio.set_text('HDMI audio · waiting for input')
+                    if values.get('scaled_capture'):
+                        if values.get('combined_error'):
+                            self.details.set_text(f"Scaled capture setup stopped: {values['combined_error']} (phase {values.get('combined_phase',0)})")
+                        elif values.get('combined_ready'):
+                            self.details.set_text(f"Capture {values.get('capture_width',1920)} × {values.get('capture_height',1080)} · up to {values.get('capture_fps_limit',60)} fps · HDMI OUT keeps the input mode")
+                        else:
+                            self.details.set_text('Waiting for HDMI and scaled capture setup…')
                     if values.get('passthrough_only'):
                         if values.get('external_active'):
                             self.signal.set_text(f"{values.get('external_width',0)} × {values.get('external_height',0)} · {values.get('external_fps_milli',0)/1000:.2f} Hz (estimate)")

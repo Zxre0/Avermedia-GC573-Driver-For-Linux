@@ -227,3 +227,35 @@ bounded latest-frame buffering, matching audio to the same PCI card, cleanup
 of both launchers, and the narrowly permitted mode-rejection recovery. The app
 requires no root privileges, encoder or OBS process. It does not start a call
 or broadcast. Simultaneous 1440p120 HDMI OUT plus 1080p60 capture remains pending.
+
+## Scaled capture implementation (0.45.0, 2026-09-24)
+
+On the same CachyOS 7.2.6-1-cachyos machine, with PS5 RGB8 1920×1080 at approximately
+59.944 Hz and PCIe Gen2 x2:
+
+- FPGA scaling delivered 120 1280×720 BGR24 frames at 59.94 fps. All 2443
+  coefficient/phase/geometry/reset readbacks passed. DMA guard remained intact.
+  The saved frame showed the full PS5 home screen with correct proportions/colors.
+- Pacing before DMA delivered 300 scaled frames at approximately 30.00 fps while
+  HDMI input remained 1080p59.94. Concurrent splitter monitoring completed without
+  a capture error after accounting for the driver's owned video/audio IRQ bits.
+- Combined-mode preview test received 819 frames, rendered 714, and reached the
+  audio pipeline's playing state. This pipeline state alone is not audio proof.
+- A separate direct ALSA recording contained 288000 interleaved samples over
+  three seconds: 287539 nonzero, absolute peak 1014, no audio guard error.
+- The actual monitor EDID filtered to 1440p59.95 and 1440p119.998 detailed timings;
+  no 4K/144 Hz timing remained in the combined source profile.
+
+**Not tested:** actual 1440p120 input → 1080p60 capture, high-rate physical
+HDMI OUT picture/audio, 60↔120 gameplay transitions, source/display unplug,
+combined-mode cold boot, numerical passthrough latency, or Discord viewer audio.
+The PS5 remained at 1080p59.94 during these tests. Unit tests of dual-TTL writes
+and phase tables do not establish real high-rate capture correctness.
+
+The final 0.45.0 module also passed a switch from combined mode back to the
+conservative profile (60 captured frames), then back to combined mode. The
+live preview again showed the PS5 at 1080p59.94 with stereo audio and zero
+capture/audio guard errors. Its status bar now distinguishes HDMI input from
+preview output. Builds passed for all three documented CachyOS kernels; the
+sanitizer suite and 46 Python tests passed. Boot mode is saved as `scaled` on
+the test machine, but an actual reboot of this release has not been performed.

@@ -169,9 +169,24 @@ def safe_link_race(mode, data):
                 data.get(prefix + '_writes_started') == '0')
 
 
+def initialize_scaled():
+    current = fields(STATUS.read_text()) if STATUS.exists() else {}
+    if number(current, 'scaled_capture'):
+        if number(current, 'combined_error') or number(current, 'external_error'):
+            raise RuntimeError('Scaled capture stopped; inspect its diagnostics before retrying')
+        print('Scaled capture is already loaded; preserving the device.')
+        return
+    initialize(False)
+    current = fields(STATUS.read_text())
+    if current.get('hdmi_ready') != '1':
+        raise WaitingForSignal('Waiting for the initial HDMI setup before enabling scaled capture')
+    step('--scaled-video', capture_video_registered=1, scaled_capture=1,
+         capture_error=0, led_error=0)
+
+
 def initialize(passthrough=False):
     current = fields(STATUS.read_text()) if STATUS.exists() else {}
-    if ready(current) and bool(number(current, 'passthrough_only')) == passthrough:
+    if ready(current) and not number(current, 'scaled_capture') and bool(number(current, 'passthrough_only')) == passthrough:
         # Keep the guard against reloading an interrupted in-kernel writing
         # phase until that worker has completed; restarting the service is safe.
         if fields(STATUS.read_text()).get('hdmi_ready', '1') == '1':
@@ -182,7 +197,7 @@ def initialize(passthrough=False):
         step('--passthrough-video', capture_video_registered=1, passthrough_only=1,
              led_error=0, led_rgb_complete=1)
         return
-    if not passthrough and number(current, 'passthrough_only'):
+    if not passthrough and (number(current, 'passthrough_only') or number(current, 'scaled_capture')):
         # Phase 7 can reject a newly selected source format after restoring
         # bank zero and before output programming. This is not a bus failure.
         rejected_format = (number(current, 'external_error') == -95 and
@@ -258,9 +273,10 @@ def initialize(passthrough=False):
 
 
 if __name__ == '__main__':
+    scaled = len(sys.argv) == 3 and sys.argv[1] == '--scaled'
     passthrough = len(sys.argv) == 3 and sys.argv[1] == '--passthrough'
     handoff = len(sys.argv) == 3 and sys.argv[1] == '--handoff-phase'
-    if os.geteuid() != 0 or (len(sys.argv) != 2 and not handoff and not passthrough):
+    if os.geteuid() != 0 or (len(sys.argv) != 2 and not handoff and not passthrough and not scaled):
         sys.exit('Use the installed GC573 helper with --start.')
     try:
         import re
@@ -277,6 +293,8 @@ if __name__ == '__main__':
             if checkpoint is None or not checkpoint['pending'] or not 6 <= checkpoint['next'] <= 18:
                 raise RuntimeError('No checked deferred startup handoff')
             print(checkpoint['next'])
+        elif scaled:
+            initialize_scaled()
         else:
             initialize(passthrough=passthrough)
     except WaitingForSignal as exc:

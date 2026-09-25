@@ -22,6 +22,7 @@
 #include "gc573_led.h"
 #include "gc573_audio.h"
 #include "gc573_modes.h"
+#include "gc573_scaler.h"
 
 #define CHUNK_BYTES 65536U
 #define CHUNKS DIV_ROUND_UP(GC573_FRAME_BYTES, CHUNK_BYTES)
@@ -65,6 +66,10 @@ struct gc573_capture {
 	bool stopping, registered, streaming;
 	unsigned int sequence, slot, link_recoveries;
 	unsigned int width, height, frame_bytes, descriptors;
+	unsigned int input_width, input_height, fps, video_control;
+	struct gc573_scaler_result scaler;
+	int scaler_error;
+	u64 next_frame_ns;
 };
 
 static u32 cap_read(struct gc573_capture *c, unsigned int reg)
@@ -210,8 +215,8 @@ static bool cap_input_matches(struct gc573_capture *c)
 	u32 period = cap_read(c, 0x1010);
 
 	return (!c->io.ready || c->io.ready(c->io.ctx)) &&
-		(cap_read(c, 0x1004) & 1) && cap_read(c, 0x1008) == c->width &&
-		cap_read(c, 0x100c) == c->height && period >= 100000000U / 61 &&
+		(cap_read(c, 0x1004) & 1) && cap_read(c, 0x1008) == c->input_width &&
+		cap_read(c, 0x100c) == c->input_height && period >= 100000000U / 121 &&
 		period <= 100000000U / 23;
 }
 
@@ -234,9 +239,9 @@ static void cap_layout(struct gc573_capture *c)
 	}
 	c->descriptors = n;
 	cap_write(c, 0x1020, 0);
-	cap_write(c, 0x1024, c->width);
+	cap_write(c, 0x1024, c->input_width);
 	cap_write(c, 0x1028, 0);
-	cap_write(c, 0x102c, c->height);
+	cap_write(c, 0x102c, c->input_height);
 	dma_wmb();
 }
 
@@ -258,6 +263,9 @@ static int cap_prepare(struct gc573_capture *c)
 		c->width = 1920;
 		c->height = 1080;
 	}
+	c->input_width = c->width;
+	c->input_height = c->height;
+	c->fps = 60;
 	/* The previous stream's reset can briefly deassert DDR readiness. */
 	for (i = 0; i < 50 && !(cap_read(c, 0x107c) & 1); i++)
 		msleep(10);
@@ -301,11 +309,22 @@ static int cap_prepare(struct gc573_capture *c)
 	return 0;
 }
 
-static void cap_enable(struct gc573_capture *c)
+static int cap_enable(struct gc573_capture *c)
 {
 	unsigned int slot;
 	unsigned long flags;
+	const struct gc573_block_io scaler_io = {
+		.ctx = c, .read = cap_led_read, .write = cap_led_write,
+		.sleep_ms = cap_led_sleep,
+	};
 
+	c->scaler_error = gc573_scaler_configure(&scaler_io, &c->scaler,
+		c->input_width, c->input_height, c->width, c->height);
+	if (c->scaler_error)
+		return c->scaler_error;
+	c->video_control = 0x200 | (c->scaler.enabled ? 0x80 : 0);
+	c->next_frame_ns = 0;
+	cap_write(c, 0x1000, c->video_control);
 	/* Initialize all video slots to owned DMA memory; arm only one at a time. */
 	for (slot = 0; slot < 4; slot++) {
 		cap_write(c, 0x308 + slot * 12, lower_32_bits(c->desc_address));
@@ -323,10 +342,30 @@ static void cap_enable(struct gc573_capture *c)
 	cap_write(c, 0x1c, cap_read(c, 0x1c) | 2);
 	spin_unlock_irqrestore(&c->engine_lock, flags);
 	/* Video is enabled by 0x304/0x1000. Global 0x08 bit 1 is audio DMA. */
+	return 0;
 }
 
 static int cap_transfer(struct gc573_capture *c)
 {
+	u32 source_period = cap_read(c, 0x1010);
+	u64 interval = div_u64(1000000000ULL, c->fps), now;
+
+	/* Select frames before arming DMA. The FPGA scaler still handles pixels;
+	 * unwanted source frames never traverse PCIe or consume a userspace buffer.
+	 * Arm half a source period before the desired next completion, allowing
+	 * the FPGA to choose the next complete frame without a torn snapshot.
+	 */
+	if (source_period && source_period < 100000000U / c->fps && c->next_frame_ns) {
+		u64 lead = (u64)source_period * 5;
+
+		now = ktime_get_ns();
+		if (c->next_frame_ns > now + lead) {
+			u32 wait_us = div_u64(c->next_frame_ns - now - lead, 1000);
+
+			if (wait_us > 0 && wait_us <= 50000)
+				usleep_range(wait_us, wait_us + 100);
+		}
+	}
 	if (!cap_input_matches(c))
 		return -ENOLINK;
 	if (READ_ONCE(c->stopping))
@@ -339,7 +378,7 @@ static int cap_transfer(struct gc573_capture *c)
 	cap_write(c, 0x310 + c->slot * 12, c->descriptors);
 	dma_wmb();
 	cap_write(c, 0x304, 1 | BIT(c->slot + 1));
-	cap_write(c, 0x1000, 0x201);
+	cap_write(c, 0x1000, c->video_control | 1);
 	c->polls = wait_for_completion_timeout(&c->done, msecs_to_jiffies(1500)) ? 1 : 0;
 	if (!c->complete) {
 		c->irq = cap_read(c, 0x10);
@@ -349,6 +388,10 @@ static int cap_transfer(struct gc573_capture *c)
 			return -ENOLINK;
 		return -ETIMEDOUT;
 	}
+	now = ktime_get_ns();
+	if (!c->next_frame_ns || now > c->next_frame_ns + interval)
+		c->next_frame_ns = now;
+	c->next_frame_ns += interval;
 	dma_rmb();
 	return 0;
 }
@@ -379,7 +422,9 @@ static int cap_once(struct gc573_capture *c)
 	unsigned int i;
 	int ret;
 
-	cap_enable(c);
+	ret = cap_enable(c);
+	if (ret)
+		return ret;
 	ret = cap_transfer(c);
 	cap_stop(c);
 	cap_copy(c, c->frame);
@@ -439,9 +484,17 @@ static int cap_worker(void *opaque)
 			v4l2_event_queue(&c->video, &event);
 			c->error = -ENOLINK;
 			while (!kthread_should_stop() && !READ_ONCE(c->stopping)) {
+				if ((!c->io.ready || c->io.ready(c->io.ctx)) &&
+				    (cap_read(c, 0x1004) & 1) &&
+				    gc573_input_supported(cap_read(c, 0x1008), cap_read(c, 0x100c))) {
+					c->input_width = cap_read(c, 0x1008);
+					c->input_height = cap_read(c, 0x100c);
+					cap_layout(c);
+				}
 				if (cap_input_matches(c)) {
-					cap_enable(c);
-					ret = cap_transfer(c);
+					ret = cap_enable(c);
+					if (!ret)
+						ret = cap_transfer(c);
 					if (!ret) {
 						c->error = 0;
 						c->link_recoveries++;
@@ -510,9 +563,20 @@ static int cap_start_streaming(struct vb2_queue *q, unsigned int count)
 	c->stopping = false;
 	c->sequence = 0;
 	c->error = 0;
+	if (gc573_input_supported(cap_read(c, 0x1008), cap_read(c, 0x100c))) {
+		c->input_width = cap_read(c, 0x1008);
+		c->input_height = cap_read(c, 0x100c);
+	}
 	cap_layout(c);
-	if (cap_input_matches(c))
-		cap_enable(c);
+	if (cap_input_matches(c)) {
+		int ret = cap_enable(c);
+
+		if (ret) {
+			c->error = ret;
+			cap_return_buffers(c, VB2_BUF_STATE_QUEUED);
+			return ret;
+		}
+	}
 	c->thread = kthread_run(cap_worker, c, "gc573-capture");
 	if (IS_ERR(c->thread)) {
 		int ret = PTR_ERR(c->thread);
@@ -638,12 +702,28 @@ static int cap_parm(struct file *file, void *priv, struct v4l2_streamparm *p)
 	if (p->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
 	memset(&p->parm, 0, sizeof(p->parm));
-	/* Report the actual source interval; S_PARM cannot retime HDMI. */
+	/* Capture cadence is independent of HDMI OUT. */
 	p->parm.capture.capability = V4L2_CAP_TIMEPERFRAME;
-	p->parm.capture.timeperframe = cap_input_matches(c) && period ?
-		(struct v4l2_fract) { period, 100000000 } : (struct v4l2_fract) { 1, 60 };
+	p->parm.capture.timeperframe = cap_input_matches(c) && period >= 100000000U / c->fps ?
+		(struct v4l2_fract) { period, 100000000 } : (struct v4l2_fract) { 1, c->fps };
 	p->parm.capture.readbuffers = 2;
 	return 0;
+}
+
+static int cap_set_parm(struct file *file, void *priv, struct v4l2_streamparm *p)
+{
+	struct gc573_capture *c = video_drvdata(file);
+	struct v4l2_fract f = p->parm.capture.timeperframe;
+	unsigned int fps;
+
+	if (p->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return -EINVAL;
+	if (vb2_is_busy(&c->queue))
+		return -EBUSY;
+	/* Quantize to a supported whole-fps cap; 59.94 must select 60, not 59. */
+	fps = f.numerator ? DIV_ROUND_CLOSEST_ULL((u64)f.denominator, f.numerator) : 60;
+	c->fps = clamp(fps, 24U, 60U);
+	return cap_parm(file, priv, p);
 }
 
 static int cap_enum_input(struct file *file, void *priv, struct v4l2_input *input)
@@ -678,7 +758,7 @@ static const struct v4l2_ioctl_ops cap_ioctl_ops = {
 	.vidioc_g_fmt_vid_cap = cap_format, .vidioc_try_fmt_vid_cap = cap_try_format,
 	.vidioc_s_fmt_vid_cap = cap_set_format, .vidioc_enum_framesizes = cap_enum_size,
 	.vidioc_enum_frameintervals = cap_enum_interval,
-	.vidioc_g_parm = cap_parm, .vidioc_s_parm = cap_parm,
+	.vidioc_g_parm = cap_parm, .vidioc_s_parm = cap_set_parm,
 	.vidioc_enum_input = cap_enum_input, .vidioc_g_input = cap_get_input,
 	.vidioc_s_input = cap_set_input,
 	.vidioc_reqbufs = vb2_ioctl_reqbufs, .vidioc_create_bufs = vb2_ioctl_create_bufs,
@@ -922,6 +1002,12 @@ ssize_t gc573_capture_status(struct gc573_capture *c, char *buf, ssize_t used)
 		c->led_checks, c->led_observed_divider, c->led_observed_enabled);
 	used = gc573_audio_status(c->audio, buf, used);
 	used += sysfs_emit_at(buf, used, "audio_error=%d\n", c->audio_error);
+	used += sysfs_emit_at(buf, used,
+		"capture_width=%u\ncapture_height=%u\ncapture_fps_limit=%u\n"
+		"capture_scaler_error=%d\ncapture_scaler_enabled=%u\ncapture_scaler_verified=%u\n"
+		"capture_scaler_last_reg=0x%x\ncapture_scaler_expected=0x%x\ncapture_scaler_observed=0x%x\n",
+		c->width, c->height, c->fps, c->scaler_error, c->scaler.enabled,
+		c->scaler.verified, c->scaler.last_reg, c->scaler.expected, c->scaler.observed);
 	used += sysfs_emit_at(buf, used, "capture_video_registered=%u\ncapture_streaming=%u\ncapture_link_recoveries=%u\ncapture_frames=%u\ncapture_interrupts=%u\n",
 		c->registered, READ_ONCE(c->streaming), c->link_recoveries, c->sequence, c->interrupts);
 	return used + sysfs_emit_at(buf, used,

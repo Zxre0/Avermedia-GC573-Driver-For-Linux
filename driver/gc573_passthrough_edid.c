@@ -53,7 +53,7 @@ static unsigned int vic_clock(unsigned int vic)
 		return 0;
 	}
 }
-static int dtd_allowed(const unsigned char *d, unsigned int max)
+static int dtd_allowed(const unsigned char *d, unsigned int max, unsigned int scaled)
 {
 	unsigned int khz = (d[0] + 256U * d[1]) * 10, w = d[2] + ((d[4] & 0xf0) << 4),
 		     h = d[5] + ((d[7] & 0xf0) << 4), ht = w + d[3] + ((d[4] & 15) << 8),
@@ -65,10 +65,14 @@ static int dtd_allowed(const unsigned char *d, unsigned int max)
 		: w == 2560 && h == 1440 ? 144
 		: w == 3840 && h == 2160 ? 60
 					 : 0;
+	if (scaled) {
+		if (w > 2560 || h > 1440) return 0;
+		limit = w == 1280 ? 60 : 120;
+	}
 	return limit && (unsigned long long)khz * 1000 <= (unsigned long long)limit * ht * vt;
 }
-int gc573_passthrough_edid(const unsigned char *data, unsigned int length,
-			   struct gc573_passthrough_edid *out)
+static int build_edid(const unsigned char *data, unsigned int length,
+			   struct gc573_passthrough_edid *out, unsigned int scaled)
 {
 	static const unsigned char header[] = {0, 255, 255, 255, 255, 255, 255, 0};
 	unsigned char vics[32] = {0}, dtds[6][18] = {{0}};
@@ -114,7 +118,8 @@ int gc573_passthrough_edid(const unsigned char *data, unsigned int length,
 			if (tag == 2)
 				for (j = 0; j < len; j++) {
 					unsigned int vic = p[j] & 127, k;
-					if (!vic_clock(vic))
+					if (!vic_clock(vic) || (scaled && vic != 4 && vic != 19 && vic != 16 &&
+					    vic != 31 && vic != 32 && vic != 33 && vic != 34 && vic != 63 && vic != 64))
 						continue;
 					for (k = 0; k < n && vics[k] != vic; k++)
 						;
@@ -141,7 +146,7 @@ int gc573_passthrough_edid(const unsigned char *data, unsigned int length,
 			continue;
 		end = b ? 127 : 126;
 		for (; i + 18 <= end; i += 18) {
-			if (nd < 6 && dtd_allowed(data + b + i, out->max_tmds_khz))
+			if (nd < 6 && dtd_allowed(data + b + i, out->max_tmds_khz, scaled))
 				copy(dtds[nd++], data + b + i, 18);
 		}
 	}
@@ -246,3 +251,10 @@ void gc573_capture_edid(unsigned char out[256])
 	checksum(out);
 	checksum(out + 128);
 }
+
+int gc573_passthrough_edid(const unsigned char *data, unsigned int length,
+    struct gc573_passthrough_edid *out)
+{ return build_edid(data, length, out, 0); }
+int gc573_scaled_edid(const unsigned char *data, unsigned int length,
+    struct gc573_passthrough_edid *out)
+{ return build_edid(data, length, out, 1); }

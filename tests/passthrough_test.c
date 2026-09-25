@@ -57,6 +57,17 @@ int main(void)
 	value = 0x80;
 	assert(gc573_sink_scdc(&io, &d, 0x74, 1, &value) == -EINVAL);
 	f = pt_setup();
+	d = (struct gc573_sink_result){.port = 1};
+	f.selected_port = 1;
+	f.tx_ports[1][3] = 0x9f;
+	value = 3;
+	assert(!gc573_sink_scdc(&io, &d, 0x20, 1, &value));
+	value = 0;
+	assert(!gc573_sink_scdc(&io, &d, 0x20, 0, &value) && value == 3);
+	for (i = 0; i < f.writes; i++) assert(f.trace[i][0] == 0x35);
+	d = (struct gc573_sink_result){0};
+
+	f = pt_setup();
 	assert(!gc573_splitter_video_external(&io, &identity, &link, &video, &caps));
 	assert(video.output_enabled && video.link_khz > 490000 && video.link_khz < 510000 &&
 	       scdc[0x20] == 3);
@@ -101,7 +112,13 @@ int main(void)
 	f = pt_setup();
 	p = (struct gc573_passthrough_state){.advertised = caps};
 	assert(!gc573_passthrough_program_edid(&io, &p, target));
+	p.scaled = 1;
+	f.all_ports = 1;
+	f.tx_ports[1][3] = 0x9f;
+	f.tx_ports[1][0xc0] |= 0x46;
+	f.tx_ports[1][0x83] |= 8;
 	assert(!gc573_passthrough_restore(&io, &p));
+	assert(!(f.tx_ports[1][0xc0] & 0x46) && !(f.tx_ports[1][0x83] & 8));
 	for (i = 0; i < 256; i++)
 		assert(f.edid[i] == ((i == 127 || i == 255) ? 0 : p.prior_edid[i]));
 	assert(!scdc[0x20] && !(f.tx_ports[2][0x83] & 8));
@@ -117,6 +134,11 @@ int main(void)
 	n = f.writes;
 	assert(!gc573_passthrough_poll(&io, &p) && p.active &&
 	       f.writes == n + 2); /* snapshots only */
+	p.scaled = 1;
+	p.polls = 3;
+	f.video_raw *= 2;
+	assert(!gc573_passthrough_poll(&io, &p) && p.waiting && !p.active && !p.configured);
+	/* Identical totals with a halved pixel clock must trigger reconfiguration. */
 	f.rx[0][0x19] = 0;
 	assert(!gc573_passthrough_poll(&io, &p) && p.waiting && !p.active);
 	puts("PASS: HDMI 2.0 SCDC, 498/595 MHz TX2 output, low-rate restore, EDID "

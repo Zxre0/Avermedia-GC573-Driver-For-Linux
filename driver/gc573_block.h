@@ -33,6 +33,9 @@ struct gc573_block_io {
 	unsigned long (*time_ms)(void *ctx);
 	/* Optional runtime gate: no capture/audio accesses until HDMI setup ends. */
 	int (*ready)(void *ctx);
+	void (*control_lock)(void *ctx);
+	void (*control_unlock)(void *ctx);
+	unsigned int owned_irq_mask; /* Runtime video/audio IRQs, never I2C. */
 };
 
 struct gc573_gpio_result {
@@ -610,4 +613,8 @@ int gc573_splitter_passthrough_rx_read(const struct gc573_block_io *io,
     struct gc573_block_result *r, unsigned int reg);
 int gc573_splitter_passthrough_rx_write(const struct gc573_block_io *io,
     struct gc573_block_result *r, unsigned int reg, unsigned int value);
+int gc573_splitter_port_ddc_read(const struct gc573_block_io *io,
+    struct gc573_block_result *r, unsigned int port, unsigned int reg);
+int gc573_splitter_port_ddc_write(const struct gc573_block_io *io,
+    struct gc573_block_result *r, unsigned int port, unsigned int reg, unsigned int value);
 #endif

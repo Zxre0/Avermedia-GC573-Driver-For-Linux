@@ -228,8 +228,8 @@ static int gc573_splitter_identify_state(const struct gc573_block_io *io,
 	if (result->gpio == 0xeeeeeeee || result->gpio == 0xffffffff ||
 	    (result->gpio & 0x108) != 0x108)
 		return -ENODEV;
-	if (io->read(io->ctx, GC573_IRQ_ENABLE) ||
-	    io->read(io->ctx, GC573_IRQ_STATUS))
+	if ((io->read(io->ctx, GC573_IRQ_ENABLE) & ~(io->owned_irq_mask & 0x22U)) ||
+	    (io->read(io->ctx, GC573_IRQ_STATUS) & ~(io->owned_irq_mask & 0x22U)))
 		return -EBUSY;
 	result->last_subaddr = 0x0f;
 	result->transactions++;
@@ -706,7 +706,7 @@ int gc573_receiver_status(const struct gc573_block_io *io,
 	if (gpio == 0xeeeeeeee || gpio == 0xffffffff ||
 	    (gpio & 0x108) != 0x108)
 		return -ENODEV;
-	if (io->read(io->ctx, GC573_IRQ_ENABLE))
+	if (io->read(io->ctx, GC573_IRQ_ENABLE) & ~(io->owned_irq_mask & 0x22U))
 		return -EBUSY;
 	for (i = 0; i < sizeof(registers); i++) {
 		result->last_subaddr = registers[i];
@@ -824,25 +824,34 @@ int gc573_splitter_video_rx_read(const struct gc573_block_io *io,
 }
 
 /* External TX2 DDC engine only; EDID reads and HDMI 2.0 SCDC only. */
-int gc573_splitter_ddc_read(const struct gc573_block_io *io,
-                           struct gc573_block_result *r, unsigned int reg)
+int gc573_splitter_port_ddc_read(const struct gc573_block_io *io,
+                           struct gc573_block_result *r, unsigned int port, unsigned int reg)
 {
 	*r = (struct gc573_block_result) { 0 };
+	if (port != 1 && port != 2) return -EINVAL;
 	if (reg != 3 && reg != 0x19 && reg != 0x1d && (reg < 0x28 || reg > 0x30))
 		return -EINVAL;
-	return gc573_block_identify_state(io, r, 0, reg, 1, 0x6d);
+	return gc573_block_identify_state(io, r, 0, reg, 1, 0x69 + 2 * port);
 }
-int gc573_splitter_ddc_write(const struct gc573_block_io *io,
-							struct gc573_block_result *r, unsigned int reg, unsigned int value)
+int gc573_splitter_port_ddc_write(const struct gc573_block_io *io,
+							struct gc573_block_result *r, unsigned int port, unsigned int reg, unsigned int value)
 {
 	*r = (struct gc573_block_result) { 0 };
+	if (port != 1 && port != 2) return -EINVAL;
 	if (reg != 0x19 && reg != 0x1d && (reg < 0x28 || reg > 0x2e) && reg != 0x30)
 		return -EINVAL;
 	if (value > 255 || (reg == 0x29 && value != 0xa0 && value != 0xa8) ||
 		(reg == 0x2e && value != 9 && value != 3 && value != 15 && value != 0 && value != 1))
 		return -EINVAL;
-	return gc573_block_write_address(io, r, reg, value, 0x6c);
+	return gc573_block_write_address(io, r, reg, value, 0x68 + 2 * port);
 }
+
+int gc573_splitter_ddc_read(const struct gc573_block_io *io,
+    struct gc573_block_result *r, unsigned int reg)
+{ return gc573_splitter_port_ddc_read(io, r, 2, reg); }
+int gc573_splitter_ddc_write(const struct gc573_block_io *io,
+    struct gc573_block_result *r, unsigned int reg, unsigned int value)
+{ return gc573_splitter_port_ddc_write(io, r, 2, reg, value); }
 
 int gc573_splitter_edid_memory_write(const struct gc573_block_io *io,
                                      struct gc573_block_result *r, unsigned int offset, unsigned int value)

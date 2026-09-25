@@ -10,6 +10,8 @@
 #include <linux/slab.h>
 #include <linux/ktime.h>
 #include <linux/workqueue.h>
+#include <linux/mutex.h>
+#include "gc573_modes.h"
 #include "gc573_i2c.h"
 #include "gc573_block.h"
 #include "gc573_capture.h"
@@ -30,6 +32,9 @@ MODULE_PARM_DESC(probe_receiver_video, "Read locked receiver timing, AVI and out
 static bool capture_video;
 module_param(capture_video, bool, 0400);
 MODULE_PARM_DESC(capture_video, "Expose native 720p/1080p RGB24 V4L2 capture");
+static bool scaled_capture;
+module_param(scaled_capture, bool, 0400);
+MODULE_PARM_DESC(scaled_capture, "Experimental 1440p120 HDMI with separately scaled 1080p60 capture");
 static bool passthrough_only;
 module_param(passthrough_only, bool, 0400);
 MODULE_PARM_DESC(passthrough_only, "Experimental display-matched SDR HDMI OUT; host capture stays stopped");
@@ -195,6 +200,9 @@ struct gc573_device {
 	struct gc573_hdmi hdmi;
 	struct gc573_block_io hdmi_io;
 	bool hdmi_ready;
+	struct mutex control_mutex;
+	unsigned int combined_phase, combined_changes;
+	int combined_error;
 	int passthrough_error;
 	struct gc573_passthrough_result passthrough;
 	int receiver_video_error;
@@ -324,11 +332,71 @@ static int gc573_hdmi_ready(void *ctx)
 	return smp_load_acquire(&card->hdmi_ready);
 }
 
+static void gc573_control_lock(void *ctx)
+{ mutex_lock(&((struct gc573_device *)ctx)->control_mutex); }
+static void gc573_control_unlock(void *ctx)
+{ mutex_unlock(&((struct gc573_device *)ctx)->control_mutex); }
+
+/* Called while holding the same control-bus mutex as ALSA prepare. */
+static int gc573_combined_poll(struct gc573_device *card)
+{
+	struct gc573_passthrough_state *p = &card->external;
+	struct gc573_hdmi *h = &card->hdmi;
+	const struct gc573_block_io *io = &card->hdmi_io;
+	int ret;
+
+	if (card->combined_error) return card->combined_error;
+	ret = gc573_passthrough_poll(io, p);
+	if (ret) goto fail;
+	if (!p->active || card->combined_changes != p->changes) {
+		smp_store_release(&card->hdmi_ready, false);
+		card->combined_phase = 0;
+		card->combined_changes = p->changes;
+	}
+	if (!p->active) return 0;
+	switch (card->combined_phase) {
+	case 0:
+		ret = gc573_splitter_video_internal(io, &h->identity, &h->link, &h->video);
+		if (ret) goto fail;
+		card->combined_phase = 1;
+		break;
+	case 1:
+		ret = gc573_receiver_video(io, &h->signal, &h->receiver_video, 2);
+		if (gc573_receiver_video_retryable(&h->receiver_video, ret)) return 0;
+		if (ret) goto fail;
+		card->combined_phase = 2;
+		break;
+	case 2:
+		if (!(io->read(io->ctx, 0x1004) & 1) ||
+		    io->read(io->ctx, 0x1008) != h->receiver_video.width ||
+		    io->read(io->ctx, 0x100c) != h->receiver_video.height)
+			return 0;
+		card->combined_phase = 3;
+		smp_store_release(&card->hdmi_ready, true);
+		break;
+	}
+	return 0;
+fail:
+	smp_store_release(&card->hdmi_ready, false);
+	return card->combined_error = ret;
+}
+
 static void gc573_hdmi_work(struct work_struct *work)
 {
 	struct gc573_device *card = container_of(to_delayed_work(work),
 						struct gc573_device, hdmi_work);
 	int ret;
+	if (scaled_capture) {
+		gc573_control_lock(card);
+		ret = gc573_combined_poll(card);
+		gc573_control_unlock(card);
+		if (ret) {
+			pr_err("gc573_native: scaled capture phase %u stopped: %d\n", card->combined_phase, ret);
+			return;
+		}
+		schedule_delayed_work(&card->hdmi_work, msecs_to_jiffies(500));
+		return;
+	}
 	if (passthrough_only) {
 		ret = gc573_passthrough_poll(&card->hdmi_io, &card->external);
 		if (ret) {
@@ -1303,7 +1371,7 @@ static ssize_t bringup_status_show(struct device *dev,
 			used += sysfs_emit_at(buf, used, "block_rx[%u]=0x%02x\n",
 					     i, card->block.data[i]);
 	}
-	if (passthrough_only || restore_capture_profile) {
+	if (passthrough_only || scaled_capture || restore_capture_profile) {
 		const struct gc573_passthrough_state *p = &card->external;
 		used += sysfs_emit_at(buf, used,
 			"passthrough_only=%u\nexternal_phase=%u\nexternal_error=%d\nexternal_active=%u\n"
@@ -1326,6 +1394,18 @@ static ssize_t bringup_status_show(struct device *dev,
 			READ_ONCE(p->last.status), READ_ONCE(p->video.last_reg),
 			READ_ONCE(p->video.expected), READ_ONCE(p->video.observed));
 	}
+	if (scaled_capture) {
+		const struct gc573_receiver_video_result *r = &card->hdmi.receiver_video;
+		used += sysfs_emit_at(buf, used,
+			"scaled_capture=1\ncombined_phase=%u\ncombined_error=%d\ncombined_ready=%u\n"
+			"combined_tx_phase=%u\ncombined_receiver_phase=%u\ncombined_receiver_last=0x%x\n"
+			"combined_receiver_width=%u\ncombined_receiver_height=%u\n"
+			"combined_receiver_clock_min=%u\ncombined_receiver_clock_max=%u\n",
+			card->combined_phase, card->combined_error, gc573_hdmi_ready(card),
+			card->hdmi.video.phase, r->phase, r->last_reg, r->width, r->height,
+			r->pixel_min_khz, r->pixel_max_khz);
+	}
+
 	if (probe_sink) {
 		const struct gc573_sink_result *r = &card->sink;
 		used += sysfs_emit_at(buf, used,
@@ -1369,7 +1449,8 @@ static int gc573_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	unsigned int i;
 	int ret;
 
-	if (passthrough_only && (!capture_video || hdmi_start_phase))
+	if ((passthrough_only || scaled_capture) && (!capture_video || hdmi_start_phase ||
+	    (passthrough_only && scaled_capture)))
 		return -EINVAL;
 	if (hdmi_start_phase && (!capture_video || hdmi_start_phase < GC573_HDMI_FIRST ||
 				hdmi_start_phase >= GC573_HDMI_DONE))
@@ -1407,6 +1488,8 @@ static int gc573_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (!card)
 		return -ENOMEM;
 	card->initial_command = command;
+	mutex_init(&card->control_mutex);
+	card->external.scaled = scaled_capture;
 
 	ret = pci_enable_device_mem(pdev);
 	if (ret)
@@ -1641,14 +1724,16 @@ static int gc573_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			.wait = gc573_block_wait, .sleep_ms = gc573_sleep_ms,
 			.wait_write = gc573_block_wait_write, .time_ms = gc573_time_ms,
 			.ready = gc573_hdmi_ready,
+			.control_lock = gc573_control_lock, .control_unlock = gc573_control_unlock,
+			.owned_irq_mask = 0x22,
 		};
 
-		card->hdmi_ready = !hdmi_start_phase && !passthrough_only;
+		card->hdmi_ready = !hdmi_start_phase && !passthrough_only && !scaled_capture;
 		INIT_DELAYED_WORK(&card->hdmi_work, gc573_hdmi_work);
-		if (capture_video && !hdmi_start_phase && !passthrough_only)
+		if (capture_video && !hdmi_start_phase && !passthrough_only && !scaled_capture)
 			card->passthrough_error = gc573_splitter_passthrough(&io, &card->passthrough);
 		card->capture = gc573_capture_create(pdev, card->bar, capture_video, &io);
-		if ((hdmi_start_phase || passthrough_only) && gc573_capture_registered(card->capture)) {
+		if ((hdmi_start_phase || passthrough_only || scaled_capture) && gc573_capture_registered(card->capture)) {
 			card->hdmi.phase = hdmi_start_phase;
 			card->hdmi_io = io;
 			schedule_delayed_work(&card->hdmi_work, msecs_to_jiffies(100));
@@ -1673,7 +1758,7 @@ static void gc573_remove(struct pci_dev *pdev)
 
 	if (capture_once || capture_video)
 		cancel_delayed_work_sync(&card->hdmi_work);
-	if (passthrough_only && card->external.prior_valid) {
+	if ((passthrough_only || scaled_capture) && card->external.prior_valid) {
 		int ret = gc573_passthrough_restore(&card->hdmi_io, &card->external);
 		if (ret) dev_warn(&pdev->dev, "HDMI profile restoration stopped: %d\n", ret);
 	}
@@ -1701,4 +1786,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.44.0");
+MODULE_VERSION("0.45.0");

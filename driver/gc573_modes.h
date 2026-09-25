@@ -7,6 +7,10 @@ static inline int gc573_mode_supported(unsigned int width, unsigned int height)
 {
 	return (width == 1920 && height == 1080) || (width == 1280 && height == 720);
 }
+static inline int gc573_input_supported(unsigned int width, unsigned int height)
+{
+	return gc573_mode_supported(width, height) || (width == 2560 && height == 1440);
+}
 static inline unsigned int gc573_mode_bytes(unsigned int width, unsigned int height)
 {
 	return gc573_mode_supported(width, height) ? width * height * 3 : 0;

@@ -90,10 +90,12 @@ static int aud_prepare(struct snd_pcm_substream *s)
 
 	aud_disable(a);
 	synchronize_irq(a->irq);
+	if (a->io.control_lock) a->io.control_lock(a->io.ctx);
 	a->prepare_error = a->io.ready && !a->io.ready(a->io.ctx) ? -ENOLINK :
 		gc573_audio_signal_read(&a->io, &a->signal);
 	if (!a->prepare_error)
 		a->prepare_error = gc573_audio_signal_enable(&a->io, &a->signal);
+	if (a->io.control_unlock) a->io.control_unlock(a->io.ctx);
 	if (a->prepare_error)
 		return a->prepare_error;
 	a->stream = s;

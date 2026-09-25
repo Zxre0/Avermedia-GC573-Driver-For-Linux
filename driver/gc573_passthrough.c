@@ -204,13 +204,24 @@ static int snapshot(const struct gc573_block_io *io, struct gc573_passthrough_st
 		return -EAGAIN;
 	p->stable = 1;
 	if (p->configured) {
-		if (!p->measured.complete) {
+		if (!p->measured.complete || (p->scaled && !(p->polls % 4))) {
+			unsigned int previous_rate = p->measured.pixel_khz;
+
 			ret = gc573_splitter_video_clock(io, &p->identity, &p->link, &p->measured,
 							 0, 2);
 			if (ret)
 				return ret;
 			p->millihz =
 			    (unsigned long long)p->measured.pixel_khz * 1000000 / (ht * vt);
+			/* Some 60/120 Hz timings share identical totals. Detect their
+			 * clock change even when the timing-register snapshot is equal.
+			 */
+			if (p->scaled && previous_rate &&
+			    (p->measured.pixel_khz > previous_rate * 110U / 100U ||
+			     p->measured.pixel_khz < previous_rate * 90U / 100U)) {
+				p->active = p->configured = 0;
+				return -EAGAIN;
+			}
 			if (p->advertised.scdc) {
 				ret = gc573_sink_scdc(io, &p->sink, 0x21, 0, &p->scdc_status);
 				if (ret)
@@ -259,7 +270,8 @@ int gc573_passthrough_poll(const struct gc573_block_io *io, struct gc573_passthr
 		if (ret == -ENOLINK && !p->sink.writes)
 			ret = -EAGAIN;
 		if (!ret)
-			ret = gc573_passthrough_edid(p->sink.edid, p->sink.bytes, &p->advertised);
+			ret = p->scaled ? gc573_scaled_edid(p->sink.edid, p->sink.bytes, &p->advertised) :
+				gc573_passthrough_edid(p->sink.edid, p->sink.bytes, &p->advertised);
 		break;
 	case 1:
 		ret = gc573_splitter_link_status(io, &p->identity, &p->link);
@@ -310,26 +322,31 @@ int gc573_passthrough_restore(const struct gc573_block_io *io, struct gc573_pass
 	ret = gc573_passthrough_program_edid(io, p, p->prior_edid);
 	if (ret)
 		return ret;
-	if (p->advertised.scdc) {
-		value = 0;
-		ret = gc573_sink_scdc(io, &p->sink, 0x20, 1, &value);
-		if (ret)
-			return ret;
+	/* Both HDMI transmitters must leave the high TMDS ratio on a return
+	 * to conservative capture. The internal receiver's SCDC is independent
+	 * of the physical monitor's SCDC and survives a TX-only reset.
+	 */
+	for (unsigned int port = p->scaled ? 1 : 2; port <= 2; port++) {
+		struct gc573_sink_result internal = {.port = 1};
+		struct gc573_sink_result *sink = port == 1 ? &internal : &p->sink;
+
+		if (port == 1 || p->advertised.scdc) {
+			value = 0;
+			ret = gc573_sink_scdc(io, sink, 0x20, 1, &value);
+			if (ret) return ret;
+		}
+		ret = gc573_splitter_video_tx_read(io, &p->last, port, 0xc0);
+		if (ret) return ret;
+		value = p->last.data[0] & ~0x46U;
+		ret = gc573_splitter_video_tx_write(io, &p->last, port, 0xc0, value);
+		if (ret) return ret;
+		ret = gc573_splitter_video_tx_read(io, &p->last, port, 0x83);
+		if (ret) return ret;
+		value = p->last.data[0] & ~8U;
+		ret = gc573_splitter_video_tx_write(io, &p->last, port, 0x83, value);
+		if (ret) return ret;
 	}
-	ret = gc573_splitter_video_tx_read(io, &p->last, 2, 0xc0);
-	if (ret)
-		return ret;
-	value = p->last.data[0] & ~0x46U;
-	ret = gc573_splitter_video_tx_write(io, &p->last, 2, 0xc0, value);
-	if (ret)
-		return ret;
-	ret = gc573_splitter_video_tx_read(io, &p->last, 2, 0x83);
-	if (ret)
-		return ret;
-	value = p->last.data[0] & ~8U;
-	ret = gc573_splitter_video_tx_write(io, &p->last, 2, 0x83, value);
-	if (ret)
-		return ret;
+
 	io->sleep_ms(io->ctx, 1000);
 	return 0;
 }

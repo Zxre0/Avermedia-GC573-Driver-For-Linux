@@ -8,10 +8,11 @@ static unsigned int cursor, ddc_fault;
 static unsigned int sink_read(void *ctx, unsigned int off)
 {
 	struct fake *f = ctx;
-	if (off == GC573_BLOCK_RX && f->regs[GC573_BLOCK_ADDRESS / 4] == 0x6d &&
+	unsigned int port = (f->regs[GC573_BLOCK_ADDRESS / 4] - 0x68) / 2;
+	if (off == GC573_BLOCK_RX && (f->regs[GC573_BLOCK_ADDRESS / 4] == 0x6b || f->regs[GC573_BLOCK_ADDRESS / 4] == 0x6d) &&
 	    f->regs[GC573_BLOCK_SUBADDR / 4] == 0x30) {
 		assert(cursor < sizeof(display_edid));
-		f->tx_ports[2][0x30] = f->tx_ports[2][0x29] == 0xa8 ? scdc[f->tx_ports[2][0x2a]]
+		f->tx_ports[port][0x30] = f->tx_ports[port][0x29] == 0xa8 ? scdc[f->tx_ports[port][0x2a]]
 								    : display_edid[cursor++];
 	}
 	return read_reg(ctx, off);
@@ -19,23 +20,24 @@ static unsigned int sink_read(void *ctx, unsigned int off)
 static int sink_wait_write(void *ctx, unsigned int *status, unsigned int *armed)
 {
 	struct fake *f = ctx;
+	unsigned int port = (f->regs[GC573_BLOCK_ADDRESS / 4] - 0x68) / 2;
 	int ret = wait_write(ctx, status, armed);
-	if (!ret && f->regs[GC573_BLOCK_ADDRESS / 4] == 0x6c &&
+	if (!ret && (f->regs[GC573_BLOCK_ADDRESS / 4] == 0x6a || f->regs[GC573_BLOCK_ADDRESS / 4] == 0x6c) &&
 	    f->regs[GC573_BLOCK_SUBADDR / 4] == 0x2e) {
 		unsigned int cmd = f->regs[GC573_BLOCK_TX / 4];
 		if (cmd == 9)
-			f->tx_ports[2][0x2f] = 0;
+			f->tx_ports[port][0x2f] = 0;
 		if (cmd == 3) {
-			cursor = f->tx_ports[2][0x2a] + 256 * f->tx_ports[2][0x2d];
-			f->tx_ports[2][0x2f] = ddc_fault ? ddc_fault & 255 : 0x80;
+			cursor = f->tx_ports[port][0x2a] + 256 * f->tx_ports[port][0x2d];
+			f->tx_ports[port][0x2f] = ddc_fault ? ddc_fault & 255 : 0x80;
 		}
 		if (cmd == 15)
-			f->tx_ports[2][0x2f] = 0x80;
+			f->tx_ports[port][0x2f] = 0x80;
 		if (cmd == 0 || cmd == 1) {
-			assert(f->tx_ports[2][0x29] == 0xa8);
+			assert(f->tx_ports[port][0x29] == 0xa8);
 			if (cmd == 1)
-				scdc[f->tx_ports[2][0x2a]] = f->tx_ports[2][0x30];
-			f->tx_ports[2][0x2f] = ddc_fault ? ddc_fault & 255 : 0x80;
+				scdc[f->tx_ports[port][0x2a]] = f->tx_ports[port][0x30];
+			f->tx_ports[port][0x2f] = ddc_fault ? ddc_fault & 255 : 0x80;
 		}
 	}
 	return ret;

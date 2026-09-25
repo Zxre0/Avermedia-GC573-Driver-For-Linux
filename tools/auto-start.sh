@@ -11,8 +11,9 @@ if [[ -z "$mode" && -f "${XDG_CONFIG_HOME:-$HOME/.config}/gc573-control/mode" ]]
     mode=$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/gc573-control/mode")
 fi
 case ${mode:-capture} in
+    scaled) "$project_dir/tools/run-probe.sh" --start-scaled ;;
     capture) "$project_dir/tools/run-probe.sh" --start ;;
     passthrough) "$project_dir/tools/run-probe.sh" --start-passthrough ;;
-    *) echo 'Unknown GC573 mode preference; expected capture or passthrough.' >&2; exit 2 ;;
+    *) echo 'Unknown GC573 mode preference; expected capture, scaled or passthrough.' >&2; exit 2 ;;
 esac
 python3 "$project_dir/app/gc573_control.py" --restore

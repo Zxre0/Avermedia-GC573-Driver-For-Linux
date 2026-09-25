@@ -51,7 +51,7 @@ static int run(struct fake *f, struct gc573_receiver_video_result *r, unsigned i
 int main(void)
 {
 	struct gc573_receiver_video_result r;
-	struct fake f = prepared();
+	struct fake f = prepared(), dual;
 	unsigned int i, total;
 
 	assert(!run(&f, &r, 0) && r.complete);
@@ -96,5 +96,26 @@ int main(void)
 		assert(run(&f, &r, 1) == -ETIMEDOUT && !r.complete && !r.output_enabled);
 	}
 	printf("PASS: receiver RGB8 single TTL output, %u transfer failures\n", total);
+	f = prepared();
+	f.receiver[0][0x9b] = 0xa0; f.receiver[0][0x9c] = 0x0a;
+	f.receiver[0][0x9d] = 0; f.receiver[0][0x9e] = 10;
+	f.receiver[0][0xa2] = 0xc9; f.receiver[0][0xa3] = 5;
+	f.receiver[0][0xa4] = 0xa0; f.receiver[0][0xa5] = 5;
+	f.receiver[0][0x99] = 41;
+	dual = f;
+	assert(!run(&f, &r, 2) && r.output_enabled && r.width == 2560 && r.height == 1440);
+	assert((f.receiver[1][0xc0] & 1) && (f.receiver[1][0xc1] & 2));
+	assert((f.receiver[1][0xbd] & 0x30) == 0x10 && f.receiver[1][0xc4] == 0x20);
+	assert((f.receiver[1][0xc5] & 1) && !f.receiver[1][0xc6]);
+	assert(r.pixel_min_khz > 240000 && r.pixel_max_khz < 243000);
+	total = f.starts;
+	for (i = 1; i <= total; i++) {
+		f = dual;
+		f.fail_at = i;
+		assert(run(&f, &r, 2) == -ETIMEDOUT && !r.complete && !r.output_enabled);
+		assert(f.starts == i);
+	}
+	puts("PASS: 1440p dual TTL clock, lane selection, output controls and each transport failure");
+
 	return 0;
 }

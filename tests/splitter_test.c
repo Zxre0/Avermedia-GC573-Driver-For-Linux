@@ -169,6 +169,21 @@ int main(void)
 	struct fake f = baseline();
 	unsigned int i;
 
+	{
+		struct gc573_block_io runtime = {.ctx = &f, .read = read_reg,
+			.write = write_reg, .wait = wait_read, .owned_irq_mask = 0x22};
+		f.regs[GC573_IRQ_ENABLE / 4] = 0x22;
+		assert(!gc573_splitter_identify(&runtime, &r));
+		f = baseline();
+		f.regs[GC573_IRQ_ENABLE / 4] = 0x22;
+		runtime.owned_irq_mask = 0;
+		assert(gc573_splitter_identify(&runtime, &r) == -EBUSY && !f.writes);
+		runtime.owned_irq_mask = 0xffffffff;
+		f.regs[GC573_IRQ_ENABLE / 4] = GC573_IRQ_I2C;
+		assert(gc573_splitter_identify(&runtime, &r) == -EBUSY && !f.writes);
+		f = baseline();
+	}
+
 	assert(!run(&f, &r));
 	assert(r.id_matches && r.id_valid && r.bank_valid && r.transactions == 2);
 	assert(f.writes == 20 && f.rx == 4 && r.gpio == 0x1f95c);

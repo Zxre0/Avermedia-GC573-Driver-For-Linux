@@ -142,3 +142,46 @@ reacquire a low-rate source. A failed initialization is not automatically replay
 The worker is experimental: monitor replacement, arbitrary source format changes,
 HDR metadata, deep color, VRR, FRL and simultaneous high-rate capture are not
 implemented or validated by this path.
+
+## Capture scaling and combined HDMI mode (0.45.0)
+
+Exact-target official-driver register observations identify Xilinx scaler blocks
+at BAR0 `0x40000` (horizontal), `0x60000` (vertical), reset `0x50000`. The IP
+configuration is RGB, four pixels/clock, six taps, 64 phases and Q12 coefficients.
+The layout and phase format were corroborated with the
+[official Xilinx VPSS scaler source](https://github.com/Xilinx/linux-xlnx/blob/master/drivers/media/platform/xilinx/xilinx-vpss-scaler.c).
+The implementation and coefficient generator are original; no vendor filter
+arrays or proprietary runtime are shipped.
+
+The horizontal geometry registers are +10 output height, +18 input width,
++20 output width, +28 RGB=0, +30 Q16 input/output pixel step. Vertical registers
+are +10 input height, +18 input width, +20 output height and +28 Q16 line step.
+Coefficients start at +800, with pairs of signed 16-bit values. Horizontal
+phase memory starts at +2000: 1024 64-bit words, each containing four 10-bit
+lanes (phase:6, input index:3, output enable:1). Unused words are cleared.
+Memory and geometry readbacks precede AP_START|AUTO_RESTART. No IRQ is enabled
+for either scaler. The capture control's bit7 routes pixels through the scaler;
+clip geometry stays at input size, while owned DMA descriptors use output size.
+
+Reset writes 0 then 3 with 5/2 ms settling. Reconfiguration requires capture
+bit0 clear. A failed readback prevents DMA activation. Loss/change of input
+stops DMA, then rebuilds the output descriptors/scaler only after HDMI readiness
+and supported FPGA input geometry return. The output queue size stays fixed.
+
+The vendor writes capture pacing bit5 and `0x103c = 148500000 / fps`, but those
+settings alone did not lower delivered rate on this FPGA in the test path.
+They are **not used** by the implementation. Instead, capture selects complete
+frames by pacing single-frame DMA requests; unwanted source frames remain on
+the card. The scaler and external HDMI output run independently.
+
+For RGB dual-TTL, traced receiver bank1 changes select C1 bit1, C0 bit0,
+BD[5:4]=1 and C4=0x20; C6 releases the second lane and C5's reset/release sequence
+finishes output. The branch is limited to supported progressive RGB8 geometry
+and measured clocks. Both TX ports use bounded SCDC transactions above 340 MHz.
+The new source EDID is intersected with the monitor's timings and excludes HDR,
+VRR, 144 Hz and 4K. This path still needs real 1440p120 validation.
+
+Runtime splitter snapshots and ALSA prepare serialize through one mutex.
+Read-only identification tolerates only explicitly owned video/audio IRQ bits
+0x22; I2C IRQ ownership and unknown pending bits remain rejected. Cold GPIO/reset
+preflights keep their stricter idle requirements.

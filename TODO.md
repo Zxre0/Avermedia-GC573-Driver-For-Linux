@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.44.0. Hardware validation and implementation are tracked
+Current driver: 0.45.0. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
@@ -50,7 +50,8 @@ separately; an unchecked item has not been demonstrated complete.
 - [ ] Implement HDR/deep-color passthrough and validate source/sink hotplug and
   cold startup in passthrough mode.
 - [ ] Implement and validate native capture at 1080p240, 1440p144 and 4K60.
-  Current capture uses RGB24 and a <=150 MHz single-TTL path. The host currently
+  Current host output uses RGB24 at up to 1080p60; higher-rate input uses an
+  experimental dual-TTL path. The host currently
   negotiates PCIe Gen 2 x2 (upstream maximum x2); high-rate RGB24 exceeds this
   link's capacity. Lower-bandwidth formats and/or a suitable x4 slot are needed.
 - [x] Add TX2 activation and bounded RGB8 output setup alongside internal TX1.
@@ -67,9 +68,17 @@ separately; an unchecked item has not been demonstrated complete.
   buffering, stereo audio playback, volume, pause and fullscreen controls.
   Live 1080p59.94 PS5 video and nonzero stereo audio observed locally.
 - [ ] Verify a Discord viewer receives both the preview picture and console audio.
-- [ ] Implement and validate simultaneous 1440p120 passthrough with 1080p60
-  capture. Keep source/display mode independent of capture scaling and rate
-  conversion; preserve capture as the default while this remains unimplemented.
+- [x] Implement FPGA scaling with original generated six-tap filters, independent
+  input/output geometry, and capture pacing before DMA. Real 1080p→720p capture
+  and 60→30 fps pacing passed with intact guards and inspected picture.
+- [x] Implement experimental combined `scaled` mode: monitor-derived EDID up to
+  1440p120, separate TX1/TX2 setup, dual-TTL receiver output, shared I2C locking,
+  persistent boot selection, and separate input/capture information in the apps.
+- [ ] Validate simultaneous **actual 1440p120 input/passthrough and 1080p60 capture**.
+  PS5 was still sending 1080p59.94 during implementation. Scaling register tests
+  and lower-rate live capture do not establish high-rate video correctness.
+- [ ] Validate combined-mode 60↔120 transitions, physical HDMI OUT picture/audio,
+  cold boot and source/display hotplug. Check latency independently of preview.
 - [x] Build and install a GTK4 desktop app with RGB controls, live measured
   resolution/frame rate, capture/audio state and disconnected/error feedback.
 - [x] Prepare source for GitHub: portable paths and PCI discovery, GPL-2.0-only,

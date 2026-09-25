@@ -5,6 +5,7 @@
 #define GC573_SINK_EDID_BYTES 512
 struct gc573_sink_result {
 	unsigned int phase, transactions, writes, bytes, blocks, complete;
+	unsigned int port; /* zero means external TX2; one selects internal TX1 */
 	unsigned int status, polls, last_reg, saved_valid, restored, sink_present;
 	int cleanup_error;
 	unsigned char saved[3], edid[GC573_SINK_EDID_BYTES];

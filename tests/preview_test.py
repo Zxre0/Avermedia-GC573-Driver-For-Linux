@@ -20,6 +20,13 @@ class PreviewTest(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertIsNotNone(preview.capture_problem(dict(good, **bad)))
 
+    def test_scaled_capture_accepts_1440_only_in_combined_mode(self):
+        state = dict(scaled_capture=1, combined_ready=1, hdmi_ready=1,
+                     input_present=1, input_width=2560, input_height=1440)
+        self.assertIsNone(preview.capture_problem(state))
+        self.assertIsNotNone(preview.capture_problem(dict(state, combined_error=-110)))
+        self.assertIsNotNone(preview.capture_problem(dict(state, input_width=3840, input_height=2160)))
+
     def test_slow_renderer_discards_stale_frames(self):
         slot = preview.LatestFrame()
         for i in range(100):

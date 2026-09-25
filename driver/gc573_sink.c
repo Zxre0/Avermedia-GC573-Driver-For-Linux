@@ -10,7 +10,7 @@ static int rd(const struct gc573_block_io *io, struct gc573_sink_result *r, unsi
 {
 	r->last_reg = reg;
 	r->transactions++;
-	return gc573_splitter_ddc_read(io, &r->last, reg);
+	return gc573_splitter_port_ddc_read(io, &r->last, r->port ? r->port : 2, reg);
 }
 static int wr(const struct gc573_block_io *io, struct gc573_sink_result *r, unsigned int reg,
 	      unsigned int value)
@@ -24,7 +24,7 @@ static int wr(const struct gc573_block_io *io, struct gc573_sink_result *r, unsi
 		return ret;
 	r->last_reg = reg;
 	r->transactions++;
-	ret = gc573_splitter_ddc_write(io, &r->last, reg, value);
+	ret = gc573_splitter_port_ddc_write(io, &r->last, r->port ? r->port : 2, reg, value);
 	r->writes += r->last.started;
 	return ret;
 }

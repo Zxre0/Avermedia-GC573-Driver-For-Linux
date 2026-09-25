@@ -132,10 +132,10 @@ static int video_rx_bank(struct video_context *c, unsigned int bank)
  */
 static int video_scdc(struct video_context *c)
 {
-	struct gc573_sink_result ddc={0};
+	struct gc573_sink_result ddc={.port=c->port};
 	unsigned int high=c->r->link_khz>340000, value;
 	int ret;
-	if(!c->sink || c->port!=2) return -EINVAL;
+	if(!c->sink || (c->port!=1 && c->port!=2)) return -EINVAL;
 	ret=video_set(c,0x83,8,high ? 8 : 0,8); if(ret) return ret;
 	/* On this GC573 C0 bits 6/2 read as link status during negotiation:
      * writing 0x77 produced 0x33 before SCDC was configured. Verify the
@@ -261,7 +261,7 @@ static int video_clock(const struct gc573_block_io *io,
 	int ret;
 
 	*r = (struct gc573_splitter_video_result) { 0 };
-	if ((port != 1 && port != 2) || configure > 2 || (sink && (port != 2 || !sink->max_tmds_khz || sink->max_tmds_khz > 600000)) ||
+	if ((port != 1 && port != 2) || configure > 2 || (sink && (!sink->max_tmds_khz || sink->max_tmds_khz > 600000)) ||
 	    !io->time_ms || !io->sleep_ms || !io->wait_write)
 		return -EINVAL;
 	c.start = io->time_ms(io->ctx);
@@ -481,4 +481,13 @@ int gc573_splitter_passthrough(const struct gc573_block_io *io,
 	r->tx_status = video.tx_status;
 	r->enabled = video.output_enabled;
 	return 0;
+}
+
+/* Same bounded HDMI 2.0 TX sequence, addressed to the internal receiver. */
+int gc573_splitter_video_internal(const struct gc573_block_io *io,
+    struct gc573_splitter_result *identity, struct gc573_splitter_link_result *link,
+    struct gc573_splitter_video_result *r)
+{
+    const struct gc573_passthrough_edid sink = {.max_tmds_khz = 510000, .scdc = 1};
+    return video_clock(io, identity, link, r, 2, 1, &sink);
 }
