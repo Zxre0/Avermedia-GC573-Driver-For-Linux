@@ -83,6 +83,11 @@ static void cap_write(struct gc573_capture *c, unsigned int reg, u32 value)
 	c->writes++;
 }
 
+static unsigned int cap_input_width(struct gc573_capture *c)
+{
+	return gc573_input_pixels(cap_read(c, 0x1008), cap_read(c, 0x1088));
+}
+
 static unsigned int cap_led_read(void *ctx, unsigned int reg)
 {
 	return cap_read(ctx, reg);
@@ -136,18 +141,32 @@ static void cap_led_keepalive(struct work_struct *work)
 static int cap_reset(struct gc573_capture *c)
 {
 	unsigned int i;
+	u32 packing, mode;
+	int ret = -ETIMEDOUT;
+
+	/* Reset clears the input packing too. Serialize its restoration with
+	 * HDMI mode changes, so a stream reopen retains the receiver interface.
+	 */
+	if (c->io.control_lock) c->io.control_lock(c->io.ctx);
+	packing = cap_read(c, 0x1088);
+	mode = cap_read(c, 0x1040);
 
 	cap_write(c, 0x0c, 1);
 	for (i = 0; i < 12; i++) {
 		usleep_range(1000, 2000);
 		if (cap_read(c, 0x0c) & 8) {
 			msleep(30);
+			cap_write(c, 0x1040, mode);
+			cap_write(c, 0x1088, packing);
+			ret = cap_read(c, 0x1040) == mode &&
+				cap_read(c, 0x1088) == packing ? 0 : -EIO;
 			/* This FPGA reset also restores the default flashing-red LED program. */
 			cap_rgb(c);
-			return 0;
+			break;
 		}
 	}
-	return -ETIMEDOUT;
+	if (c->io.control_unlock) c->io.control_unlock(c->io.ctx);
+	return ret;
 }
 
 static int cap_stop(struct gc573_capture *c)
@@ -215,7 +234,7 @@ static bool cap_input_matches(struct gc573_capture *c)
 	u32 period = cap_read(c, 0x1010);
 
 	return (!c->io.ready || c->io.ready(c->io.ctx)) &&
-		(cap_read(c, 0x1004) & 1) && cap_read(c, 0x1008) == c->input_width &&
+		(cap_read(c, 0x1004) & 1) && cap_input_width(c) == c->input_width &&
 		cap_read(c, 0x100c) == c->input_height && period >= 100000000U / 121 &&
 		period <= 100000000U / 23;
 }
@@ -254,7 +273,7 @@ static int cap_prepare(struct gc573_capture *c)
 	if (cap_read(c, 0x1c) || cap_read(c, 0x304) || (cap_read(c, 8) & 0x22) ||
 	    (cap_read(c, 0x1000) & 1))
 		return -EBUSY;
-	c->width = cap_read(c, 0x1008);
+	c->width = cap_input_width(c);
 	c->height = cap_read(c, 0x100c);
 	/* Register an idle device even while the prepared HDMI input is absent.
 	 * DMA remains gated by cap_input_matches() on every transfer.
@@ -486,8 +505,8 @@ static int cap_worker(void *opaque)
 			while (!kthread_should_stop() && !READ_ONCE(c->stopping)) {
 				if ((!c->io.ready || c->io.ready(c->io.ctx)) &&
 				    (cap_read(c, 0x1004) & 1) &&
-				    gc573_input_supported(cap_read(c, 0x1008), cap_read(c, 0x100c))) {
-					c->input_width = cap_read(c, 0x1008);
+				    gc573_input_supported(cap_input_width(c), cap_read(c, 0x100c))) {
+					c->input_width = cap_input_width(c);
 					c->input_height = cap_read(c, 0x100c);
 					cap_layout(c);
 				}
@@ -563,8 +582,8 @@ static int cap_start_streaming(struct vb2_queue *q, unsigned int count)
 	c->stopping = false;
 	c->sequence = 0;
 	c->error = 0;
-	if (gc573_input_supported(cap_read(c, 0x1008), cap_read(c, 0x100c))) {
-		c->input_width = cap_read(c, 0x1008);
+	if (gc573_input_supported(cap_input_width(c), cap_read(c, 0x100c))) {
+		c->input_width = cap_input_width(c);
 		c->input_height = cap_read(c, 0x100c);
 	}
 	cap_layout(c);
@@ -974,7 +993,7 @@ ssize_t gc573_capture_status(struct gc573_capture *c, char *buf, ssize_t used)
 		return used + sysfs_emit_at(buf, used, "capture_error=%d\n", -ENOMEM);
 	{
 		u32 valid = cap_read(c, 0x1004) & 1, period = cap_read(c, 0x1010);
-		u32 width = cap_read(c, 0x1008) & 0xffff, height = cap_read(c, 0x100c) & 0xffff;
+		u32 width = cap_input_width(c) & 0xffff, height = cap_read(c, 0x100c) & 0xffff;
 
 		used += sysfs_emit_at(buf, used,
 			"input_present=%u\ninput_width=%u\ninput_height=%u\ninput_fps_milli=%llu\n"

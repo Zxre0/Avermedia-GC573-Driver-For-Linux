@@ -68,6 +68,29 @@ int main(void)
 	d = (struct gc573_sink_result){0};
 
 	f = pt_setup();
+	f.tx_ports[2][3] &= ~2U; /* Monitor RxSense disappears before TX programming. */
+	assert(gc573_splitter_video_external(&io, &identity, &link, &video, &caps) == -ENOLINK);
+	assert(gc573_splitter_video_link_wait(&video, -ENOLINK));
+	assert(!video.writes_started && !video.output_enabled);
+	assert(!gc573_splitter_video_link_wait(&video, -ETIMEDOUT));
+	video.phase = 8;
+	assert(!gc573_splitter_video_link_wait(&video, -ENOLINK));
+	video.phase = 1;
+	video.prerequisite_error = -EIO;
+	assert(!gc573_splitter_video_link_wait(&video, -ENOLINK));
+	f = pt_setup();
+	p = (struct gc573_passthrough_state){.phase = 3, .scaled = 1, .advertised = caps};
+	f.tx_ports[2][3] &= ~2U;
+	assert(!gc573_passthrough_poll(&io, &p));
+	assert(!gc573_passthrough_poll(&io, &p) && p.waiting && p.stable && !p.active && !p.error);
+	f.tx_ports[2][3] |= 2;
+	assert(!gc573_passthrough_poll(&io, &p) && p.active && !p.error);
+	p.polls = 3;
+	f.tx_ports[2][3] &= ~2U;
+	assert(!gc573_passthrough_poll(&io, &p) && p.waiting && !p.active && !p.configured);
+	f.tx_ports[2][3] |= 2;
+	assert(!gc573_passthrough_poll(&io, &p) && p.active && !p.error);
+	f = pt_setup();
 	assert(!gc573_splitter_video_external(&io, &identity, &link, &video, &caps));
 	assert(video.output_enabled && video.link_khz > 490000 && video.link_khz < 510000 &&
 	       scdc[0x20] == 3);
@@ -79,6 +102,7 @@ int main(void)
 		assert(gc573_splitter_video_external(&io, &identity, &link, &video, &caps) ==
 		       -ETIMEDOUT);
 		assert(!video.output_enabled && f.transactions == i);
+		assert(!gc573_splitter_video_format_wait(&video, -ETIMEDOUT));
 	}
 	f = pt_setup();
 	f.video_raw = 72;
@@ -141,6 +165,44 @@ int main(void)
 	/* Identical totals with a halved pixel clock must trigger reconfiguration. */
 	f.rx[0][0x19] = 0;
 	assert(!gc573_passthrough_poll(&io, &p) && p.waiting && !p.active);
+	/* A transient unsupported source must not reset the working HDMI output. */
+	for (i = 0; i < 3; i++) {
+		unsigned int j;
+		f = pt_setup();
+		f.video_raw = 288;
+		if (i == 0) f.rx[0][0xcf] = 0x20;
+		if (i == 1) f.rx[2][0x15] = 0x20;
+		if (i == 2) f.rx[0][0x98] = 0x10;
+		assert(gc573_splitter_video_external(&io, &identity, &link, &video, &caps) == -EOPNOTSUPP);
+		assert(gc573_splitter_video_format_wait(&video, -EOPNOTSUPP));
+		assert(!video.analog_complete && !video.output_enabled && !video.irq_valid);
+		for (j = 0; j < f.writes; j++)
+			if (f.trace[j][0] == 0x36)
+				assert(f.trace[j][1] == 7 || f.trace[j][1] == 0xaf);
+	}
+	video.phase = 8;
+	assert(!gc573_splitter_video_format_wait(&video, -EOPNOTSUPP));
+	video.phase = 7;
+	video.bank_verified = 0;
+	assert(!gc573_splitter_video_format_wait(&video, -EOPNOTSUPP));
+	video.bank_verified = 1;
+	video.last.status = 8;
+	assert(!gc573_splitter_video_format_wait(&video, -EOPNOTSUPP));
+	/* Phase-seven format rejection and snapshot depth rejection both recover. */
+	for (i = 0; i < 2; i++) {
+		f = pt_setup();
+		p = (struct gc573_passthrough_state){.phase = 3, .advertised = caps, .scaled = 1};
+		if (i) f.rx[0][0x98] = 0x10;
+		else f.rx[0][0xcf] = 0x20;
+		assert(!gc573_passthrough_poll(&io, &p));
+		assert(!gc573_passthrough_poll(&io, &p));
+		assert(p.waiting && p.format_rejected && p.format_waits == 1 && !p.error && !p.active);
+		f.rx[0][0xcf] = f.rx[0][0x98] = 0;
+		assert(!gc573_passthrough_poll(&io, &p));
+		assert(!gc573_passthrough_poll(&io, &p));
+		assert(p.active && p.configured && !p.waiting && !p.error && !p.format_rejected);
+	}
+	puts("PASS: transient format waits recover; unsupported input never resets TX; transport failures remain stopped");
 	puts("PASS: HDMI 2.0 SCDC, 498/595 MHz TX2 output, low-rate restore, EDID "
 	     "SRAM verification, mode worker and failure injection");
 }

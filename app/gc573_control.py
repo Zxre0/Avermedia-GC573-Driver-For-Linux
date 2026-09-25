@@ -219,8 +219,11 @@ def run_gui():
                     if values.get('scaled_capture'):
                         if values.get('combined_error'):
                             self.details.set_text(f"Scaled capture setup stopped: {values['combined_error']} (phase {values.get('combined_phase',0)})")
+                        elif values.get('external_format_rejected'):
+                            self.details.set_text('Waiting for RGB 8-bit SDR input · capture resumes automatically')
                         elif values.get('combined_ready'):
-                            self.details.set_text(f"Capture {values.get('capture_width',1920)} × {values.get('capture_height',1080)} · up to {values.get('capture_fps_limit',60)} fps · HDMI OUT keeps the input mode")
+                            output = 'HDMI OUT keeps the input mode' if values.get('external_active') else 'HDMI OUT waiting for display'
+                            self.details.set_text(f"Capture {values.get('capture_width',1920)} × {values.get('capture_height',1080)} · up to {values.get('capture_fps_limit',60)} fps · {output}")
                         else:
                             self.details.set_text('Waiting for HDMI and scaled capture setup…')
                     if values.get('passthrough_only'):

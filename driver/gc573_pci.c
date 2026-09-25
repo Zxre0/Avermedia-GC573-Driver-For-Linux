@@ -201,7 +201,8 @@ struct gc573_device {
 	struct gc573_block_io hdmi_io;
 	bool hdmi_ready;
 	struct mutex control_mutex;
-	unsigned int combined_phase, combined_changes;
+	unsigned int combined_phase, combined_changes, combined_format_waits;
+	unsigned int combined_period;
 	int combined_error;
 	int passthrough_error;
 	struct gc573_passthrough_result passthrough;
@@ -348,32 +349,88 @@ static int gc573_combined_poll(struct gc573_device *card)
 	if (card->combined_error) return card->combined_error;
 	ret = gc573_passthrough_poll(io, p);
 	if (ret) goto fail;
-	if (!p->active || card->combined_changes != p->changes) {
+	/* TX2's monitor can stop asserting RxSense while the PS5 and internal
+	 * receiver remain active. Capture follows the stable input, not TX2.
+	 */
+	if (!p->stable || p->format_rejected || card->combined_changes != p->changes) {
 		smp_store_release(&card->hdmi_ready, false);
 		card->combined_phase = 0;
 		card->combined_changes = p->changes;
 	}
-	if (!p->active) return 0;
+	if (!p->stable || p->format_rejected) return 0;
 	switch (card->combined_phase) {
 	case 0:
 		ret = gc573_splitter_video_internal(io, &h->identity, &h->link, &h->video);
+		if (gc573_splitter_video_link_wait(&h->video, ret)) return 0;
+		if (gc573_splitter_video_format_wait(&h->video, ret)) {
+			card->combined_format_waits++;
+			return 0;
+		}
 		if (ret) goto fail;
 		card->combined_phase = 1;
 		break;
 	case 1:
 		ret = gc573_receiver_video(io, &h->signal, &h->receiver_video, 2);
 		if (gc573_receiver_video_retryable(&h->receiver_video, ret)) return 0;
+		if (ret == -EOPNOTSUPP && h->receiver_video.phase == 5 &&
+		    h->receiver_video.bank_verified && !h->receiver_video.bank &&
+		    h->receiver_video.last.status == GC573_BLOCK_READ_DONE) {
+			card->combined_format_waits++;
+			return 0;
+		}
 		if (ret) goto fail;
 		card->combined_phase = 2;
 		break;
-	case 2:
+	case 2: {
+		unsigned int dual = h->receiver_video.width > 1920 ||
+			h->receiver_video.pixel_max_khz > 150000;
+		unsigned int packing = dual ? 3 : 0;
+		unsigned int mode = io->read(io->ctx, 0x1040);
+		unsigned int target = (mode & ~0x20U) | (dual ? 0x20U : 0);
+		unsigned int period = io->read(io->ctx, 0x1010);
+
+		/* Match the traced RGB single SDR / dual DDR receiver interface. Do not
+		 * change packing while a previous capture transfer is stopping.
+		 */
+		if ((io->read(io->ctx, 0x1000) & 1) || io->read(io->ctx, 0x304))
+			return 0;
+		if (mode != target || io->read(io->ctx, 0x1088) != packing) {
+			io->write(io->ctx, 0x1040, target);
+			io->write(io->ctx, 0x1088, packing);
+			if (io->read(io->ctx, 0x1040) != target ||
+			    io->read(io->ctx, 0x1088) != packing) {
+				ret = -EIO;
+				goto fail;
+			}
+			return 0;
+		}
 		if (!(io->read(io->ctx, 0x1004) & 1) ||
-		    io->read(io->ctx, 0x1008) != h->receiver_video.width ||
-		    io->read(io->ctx, 0x100c) != h->receiver_video.height)
+		    gc573_input_pixels(io->read(io->ctx, 0x1008), packing) != h->receiver_video.width ||
+		    io->read(io->ctx, 0x100c) != h->receiver_video.height ||
+		    period < 100000000U / 121 || period > 100000000U / 23)
 			return 0;
 		card->combined_phase = 3;
+		card->combined_period = period;
 		smp_store_release(&card->hdmi_ready, true);
 		break;
+	}
+	case 3: {
+		unsigned int period = io->read(io->ctx, 0x1010);
+		unsigned int packing = io->read(io->ctx, 0x1088);
+
+		/* Also detect rate-only changes while the external monitor is idle.
+		 * Reconfigure TX1/SCDC before capture resumes on the new source mode.
+		 */
+		if (!(io->read(io->ctx, 0x1004) & 1) ||
+		    gc573_input_pixels(io->read(io->ctx, 0x1008), packing) != h->receiver_video.width ||
+		    io->read(io->ctx, 0x100c) != h->receiver_video.height ||
+		    period < card->combined_period * 9 / 10 ||
+		    period > card->combined_period * 11 / 10) {
+			smp_store_release(&card->hdmi_ready, false);
+			card->combined_phase = 0;
+		}
+		break;
+	}
 	}
 	return 0;
 fail:
@@ -1393,6 +1450,12 @@ static ssize_t bringup_status_show(struct device *dev,
 			READ_ONCE(p->link.rx[8]), READ_ONCE(p->link.rx[11]), READ_ONCE(p->link.tx[2]),
 			READ_ONCE(p->last.status), READ_ONCE(p->video.last_reg),
 			READ_ONCE(p->video.expected), READ_ONCE(p->video.observed));
+		used += sysfs_emit_at(buf, used,
+			"external_format_waits=%u\nexternal_format_rejected=%u\n"
+			"external_format_avi=0x%x\nexternal_format_depth=0x%x\nexternal_format_cf=0x%x\n"
+			"external_format_rx13=0x%x\nexternal_candidate_pixel_khz=%u\n",
+			p->format_waits, p->format_rejected, p->video.avi_color, p->video.depth,
+			p->video.rx_cf, p->video.rx13, p->video.pixel_khz);
 	}
 	if (scaled_capture) {
 		const struct gc573_receiver_video_result *r = &card->hdmi.receiver_video;
@@ -1400,10 +1463,14 @@ static ssize_t bringup_status_show(struct device *dev,
 			"scaled_capture=1\ncombined_phase=%u\ncombined_error=%d\ncombined_ready=%u\n"
 			"combined_tx_phase=%u\ncombined_receiver_phase=%u\ncombined_receiver_last=0x%x\n"
 			"combined_receiver_width=%u\ncombined_receiver_height=%u\n"
-			"combined_receiver_clock_min=%u\ncombined_receiver_clock_max=%u\n",
+			"combined_receiver_clock_min=%u\ncombined_receiver_clock_max=%u\n"
+			"combined_format_waits=%u\ncombined_fpga_status=0x%x\n"
+			"combined_fpga_width=%u\ncombined_fpga_height=%u\ncombined_fpga_packing=0x%x\n",
 			card->combined_phase, card->combined_error, gc573_hdmi_ready(card),
 			card->hdmi.video.phase, r->phase, r->last_reg, r->width, r->height,
-			r->pixel_min_khz, r->pixel_max_khz);
+			r->pixel_min_khz, r->pixel_max_khz, card->combined_format_waits,
+			ioread32(card->bar + 0x1004), ioread32(card->bar + 0x1008),
+			ioread32(card->bar + 0x100c), ioread32(card->bar + 0x1088));
 	}
 
 	if (probe_sink) {
@@ -1786,4 +1853,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.45.0");
+MODULE_VERSION("0.45.1");

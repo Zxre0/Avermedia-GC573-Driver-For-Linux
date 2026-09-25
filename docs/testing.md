@@ -259,3 +259,38 @@ capture/audio guard errors. Its status bar now distinguishes HDMI input from
 preview output. Builds passed for all three documented CachyOS kernels; the
 sanitizer suite and 46 Python tests passed. Boot mode is saved as `scaled` on
 the test machine, but an actual reboot of this release has not been performed.
+
+
+## 1440p scaled capture and negotiation recovery (0.45.1, 2026-09-24)
+
+Test platform: PS5 with HDCP disabled, GC573 FPGA `20201015`, board `57300102`,
+CachyOS `7.2.6-1-cachyos`, PCIe Gen2 x2. The live source was RGB8
+2560×1440 at approximately 59.944 Hz. The user separately confirmed that
+1440p physical passthrough worked; that report did not specify 120 Hz.
+
+- Reproduced a stopped scaled worker (`-95`) after a source format transition.
+  Added preflight validation and retries for restored, unsupported snapshots;
+  transport failures and incomplete output writes remain stopped.
+- Configured FPGA dual-pixel DDR packing. The horizontal timing counter read
+  640 interface periods, corresponding to 2560 pixels. Hardware-scaled
+  1920×1080 BGR24 showed the full PS5 home screen with correct colors.
+- Captured 300 frames at 59.94 fps with all 2443 scaler readbacks verified,
+  capture_error=0 and intact DMA guards. Stream close/reopen retained packing.
+  The first single-frame test was blank; a subsequent capture after discarding
+  30 startup frames and the live preview showed valid content.
+- With the external monitor reporting RxSense inactive, internal capture
+  continued while external setup waited. No physical monitor reconnect or
+  simultaneous passthrough latency measurement was performed in that state.
+- Final preview smoke test received 609 frames and rendered 608 in about ten
+  seconds. Restored live Preview and Control windows showed HDMI 2560×1440 at
+  59.94 Hz and 1920×1080 capture; saved RGB settings and WirePlumber were restored.
+- Direct ALSA capture delivered 300 periods with no guard or prepare error.
+  Receiver diagnostics indicated 48 kHz PCM, but the recording and concurrent
+  preview audio buffers were silent. Non-silent audio at 1440p is **not verified**.
+- All C sanitizer tests, 47 Python tests, and shell syntax checks passed.
+  `W=1` module builds passed for 7.2.6-1-cachyos, cached 7.2.3-1-cachyos,
+  and 6.18.52-1-cachyos-lts. Only 7.2.6 was loaded on hardware for this release.
+
+Still pending: actual 1440p120 gameplay with 1080p60 capture, 60↔120 transitions,
+non-silent higher-rate audio, combined-mode cold boot and physical source/sink
+hotplug. The measured 59.94 Hz result must not be presented as 120 Hz validation.

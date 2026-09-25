@@ -271,7 +271,10 @@ ssize_t gc573_audio_status(struct gc573_audio *a, char *buf, ssize_t used)
 		return used + sysfs_emit_at(buf, used, "audio_registered=0\n");
 	return used + sysfs_emit_at(buf, used,
 		"audio_registered=1\naudio_running=%u\naudio_periods=%u\naudio_nonzero_bytes=%u\n"
-		"audio_guard_errors=%u\naudio_last_slot=%u\naudio_prepare_error=%d\n",
+		"audio_guard_errors=%u\naudio_last_slot=%u\naudio_prepare_error=%d\n"
+		"audio_prepared_valid=%u\naudio_prepared_status=%16ph\n"
+		"audio_prepared_controls=%16ph\naudio_prepared_output=0x%02x\n",
 		READ_ONCE(a->running), READ_ONCE(a->periods), READ_ONCE(a->nonzero),
-		READ_ONCE(a->bad_guard), READ_ONCE(a->last_slot), READ_ONCE(a->prepare_error));
+		READ_ONCE(a->bad_guard), READ_ONCE(a->last_slot), READ_ONCE(a->prepare_error),
+		a->signal.valid, a->signal.status, a->signal.controls, a->signal.output);
 }

@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.45.0. Hardware validation and implementation are tracked
+Current driver: 0.45.1. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
@@ -74,9 +74,16 @@ separately; an unchecked item has not been demonstrated complete.
 - [x] Implement experimental combined `scaled` mode: monitor-derived EDID up to
   1440p120, separate TX1/TX2 setup, dual-TTL receiver output, shared I2C locking,
   persistent boot selection, and separate input/capture information in the apps.
+- [x] Fix transient scaled-mode format rejection (`-95`) and link-readiness
+  races; keep transport failures stopped. Validate retries with failure injection.
+- [x] Configure FPGA dual-pixel DDR input, account for interface-period width,
+  and preserve packing across capture reset. Hardware 1440p59.94 → 1080p59.94
+  capture passed 300 frames and reopening, with intact guards and inspected image.
+- [x] Confirm physical 1440p passthrough: user reports working output. This
+  report does not specify 120 Hz or constitute a latency measurement.
 - [ ] Validate simultaneous **actual 1440p120 input/passthrough and 1080p60 capture**.
-  PS5 was still sending 1080p59.94 during implementation. Scaling register tests
-  and lower-rate live capture do not establish high-rate video correctness.
+  PS5 1440p59.94 → 1080p59.94 capture now passes; actual 120 Hz gameplay
+  and non-silent audio at the higher input mode still need validation.
 - [ ] Validate combined-mode 60↔120 transitions, physical HDMI OUT picture/audio,
   cold boot and source/display hotplug. Check latency independently of preview.
 - [x] Build and install a GTK4 desktop app with RGB controls, live measured

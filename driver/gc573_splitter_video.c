@@ -167,17 +167,13 @@ static int video_scdc(struct video_context *c)
  * The display-matched path adds HDMI 2.0 scrambling; format conversion and
  * encrypted input remain unsupported.
  */
-static int video_output(struct video_context *c)
+/* Validate the live source before resetting a transmitter. A mode switch can
+ * temporarily publish a different AVI/depth/clock combination. Refuse it
+ * without disturbing an already-running HDMI output.
+ */
+static int video_validate(struct video_context *c)
 {
 	struct gc573_splitter_video_result *r = c->r;
-	static const unsigned char ops[][4] = {
-		{ 0xc0, 1, 1, 1 }, { 0xc1, 0xf0, 0, 0xb0 }, { 0xc1, 4, 0, 4 },
-		{ 0x18, 0x0c, 0x0c, 0x0c }, { 0x85, 255, 0x19, 255 },
-		{ 0x1a, 0x0b, 0x0b, 0x0b }, { 0xc0, 2, 0, 2 },
-		{ 0xc1, 8, 0, 8 }, { 0xc1, 8, 8, 8 },
-		{ 0xc2, 0x80, 0x80, 0x80 }, { 0xc3, 0x30, 0x30, 0x30 },
-		{ 0x88, 3, 0, 3 },
-	};
 	unsigned int i;
 	int ret;
 
@@ -222,6 +218,26 @@ static int video_output(struct video_context *c)
 		millihz=(unsigned long long)r->pixel_khz*1000000/(ht*vt);
 		if(!limit || millihz>limit*1010U) return -EOPNOTSUPP;
 	}
+	return 0;
+}
+
+static int video_output(struct video_context *c)
+{
+	struct gc573_splitter_video_result *r = c->r;
+	static const unsigned char ops[][4] = {
+		{ 0xc0, 1, 1, 1 }, { 0xc1, 0xf0, 0, 0xb0 }, { 0xc1, 4, 0, 4 },
+		{ 0x18, 0x0c, 0x0c, 0x0c }, { 0x85, 255, 0x19, 255 },
+		{ 0x1a, 0x0b, 0x0b, 0x0b }, { 0xc0, 2, 0, 2 },
+		{ 0xc1, 8, 0, 8 }, { 0xc1, 8, 8, 8 },
+		{ 0xc2, 0x80, 0x80, 0x80 }, { 0xc3, 0x30, 0x30, 0x30 },
+		{ 0x88, 3, 0, 3 },
+	};
+	unsigned int i;
+	int ret;
+
+	ret = video_validate(c);
+	if (ret)
+		return ret;
 	r->phase = 8;
 	for (i = 0; i < ARRAY_SIZE(ops); i++) {
 		if (c->sink && i == 6)
@@ -247,6 +263,32 @@ static int video_output(struct video_context *c)
 	if (ret)
 		return ret;
 	r->output_enabled = 1;
+	return 0;
+}
+
+static int video_first_scdt(struct video_context *c)
+{
+	struct gc573_splitter_video_result *r = c->r;
+	unsigned int i;
+	int ret;
+
+	/* 575d0's first-SCDT branch, before its clock and analog helpers. */
+	for (i = 0; i < 6; i++) {
+		ret = video_read(c, 0x34 + c->port, 0x10 + i);
+		if (ret)
+			return ret;
+		r->irq_before[i] = r->last.data[0];
+		r->irq_valid |= 1U << i;
+		ret = video_set(c, 0x10 + i, 255, i ? 255 : 0xc0, 0);
+		if (ret)
+			return ret;
+	}
+	ret = video_set(c, 1, 255, 0x24, 0);
+	if (ret)
+		return ret;
+	ret = video_set(c, 1, 255, 0, 255);
+	if (ret)
+		return ret;
 	return 0;
 }
 
@@ -296,22 +338,8 @@ static int video_clock(const struct gc573_block_io *io,
 			return -EOPNOTSUPP;
 	}
 	r->phase = 2;
-	if (configure) {
-		/* 575d0's first-SCDT branch, before its clock and analog helpers. */
-		for (i = 0; i < 6; i++) {
-			ret = video_read(&c, 0x34 + port, 0x10 + i);
-			if (ret)
-				return ret;
-			r->irq_before[i] = r->last.data[0];
-			r->irq_valid |= 1U << i;
-			ret = video_set(&c, 0x10 + i, 255, i ? 255 : 0xc0, 0);
-			if (ret)
-				return ret;
-		}
-		ret = video_set(&c, 1, 255, 0x24, 0);
-		if (ret)
-			return ret;
-		ret = video_set(&c, 1, 255, 0, 255);
+	if (configure == 1) {
+		ret = video_first_scdt(&c);
 		if (ret)
 			return ret;
 	}
@@ -356,6 +384,14 @@ static int video_clock(const struct gc573_block_io *io,
 	ret = video_set(&c, 0xaf, 0xc0, 0, 0xc0);
 	if (ret)
 		return ret;
+	if (configure == 2) {
+		ret = video_validate(&c);
+		if (ret)
+			return ret;
+		ret = video_first_scdt(&c);
+		if (ret)
+			return ret;
+	}
 	if (configure) {
 		unsigned int rate = r->link_khz;
 		unsigned char analog87, analog89, analog8b;
@@ -490,4 +526,22 @@ int gc573_splitter_video_internal(const struct gc573_block_io *io,
 {
     const struct gc573_passthrough_edid sink = {.max_tmds_khz = 510000, .scdc = 1};
     return video_clock(io, identity, link, r, 2, 1, &sink);
+}
+
+int gc573_splitter_video_format_wait(const struct gc573_splitter_video_result *r, int error)
+{
+	/* This is a completed format observation, before output-enable writes.
+	 * Bank/completion readbacks rule out reusing an incomplete transfer.
+	 */
+	return error == -EOPNOTSUPP && r->phase == 7 && r->bank_verified &&
+		!r->bank && r->last.status == GC573_BLOCK_READ_DONE;
+}
+
+int gc573_splitter_video_link_wait(const struct gc573_splitter_video_result *r, int error)
+{
+	/* The link can disappear between snapshot and validation. This exit is
+	 * before any TX programming; transport errors remain fatal.
+	 */
+	return error == -ENOLINK && r->phase == 1 && !r->prerequisite_error &&
+		!r->writes_started;
 }

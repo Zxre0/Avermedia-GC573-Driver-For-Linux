@@ -33,6 +33,8 @@ def capture_problem(values):
         return 'Passthrough-only mode. Switch to capture mode to preview or share your PS5.'
     if values.get('combined_error'):
         return f"Scaled capture setup stopped (error {values['combined_error']}). Check GC573 Control."
+    if values.get('scaled_capture') and values.get('external_format_rejected'):
+        return 'Waiting for a supported RGB 8-bit SDR signal. Capture will resume automatically.'
     if values.get('hdmi_error'):
         return f"HDMI setup stopped (error {values['hdmi_error']}). Check GC573 Control."
     if not values.get('hdmi_ready', 1) or not values.get('input_present'):

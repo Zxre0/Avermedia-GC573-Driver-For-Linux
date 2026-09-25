@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.45.0 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.45.1 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -49,7 +49,7 @@ Those are **card specifications**, not features already working in this driver.
 | 1080p60 video | Hardware verified in OBS; RGB 8-bit HDMI input → V4L2 BGR24 |
 | 720p and lower-rate 1080p | Bounded support implemented; additional source modes need hardware validation |
 | Full-rate high-resolution capture / HDR | Not implemented; host output remains at most 1080p60 SDR |
-| Hardware scaling | 1080p input → 720p capture verified; independent capture pacing verified at 30 fps |
+| Hardware scaling | 1440p59.94 input → 1080p59.94 capture and 1080p → 720p verified; independent capture pacing verified at 30 fps |
 | 1440p120 HDMI OUT + 1080p60 capture | Experimental combined mode implemented; actual 1440p120 source validation still pending |
 | High-rate HDMI OUT | Experimental RGB8 SDR mode: display-matched timings capped at 1080p240, 1440p144 and 4K60; host capture disabled; see limitations below |
 | HDMI audio | Stereo S16_LE, 48 kHz; non-silent stereo audio recorded in OBS; channel order and content A/V sync still need a reference test |
@@ -57,7 +57,7 @@ Those are **card specifications**, not features already working in this driver.
 | Control app | Live incoming resolution/rate, signal state, capture/audio state and saved lighting settings |
 | Signal loss | User confirms recovery works in the current setup; detailed cable/source-mode test coverage pending |
 | Automatic startup | Loads video/audio devices and RGB without HDMI video; finishes HDMI setup in the background when a supported source arrives |
-| External HDMI passthrough | 1080p60 video confirmed; user reports very good latency; output audio and numerical latency measurement pending |
+| External HDMI passthrough | User confirms 1080p60 and 1440p video; user reports very good latency; output audio and numerical latency measurement pending |
 | Suspend/resume, compressed or multichannel audio | Not supported |
 
 The driver targets PCI `1461:0054`, subsystem `1461:5730`, FPGA `20201015`, board
@@ -110,7 +110,7 @@ The preview works in **capture** and **scaled** modes with HDCP disabled. It
 shows HDMI input resolution/rate separately from preview resolution and its
 capture frame-rate limit. Passthrough-only mode does not provide host capture.
 
-## Experimental 1440p passthrough with 1080p capture (0.45.0)
+## Experimental 1440p passthrough with 1080p capture (0.45.1)
 
 The new `scaled` mode keeps HDMI OUT at the console's input timing while the
 FPGA scales the capture image to 1080p (or 720p when requested by V4L2). Capture
@@ -118,12 +118,21 @@ requests are paced before DMA, so unwanted source frames are not transferred
 over PCIe. At 1080p60 BGR24 the video payload is about 373 MB/s; scaling happens
 on the card, rather than receiving full-resolution 1440p120 on the host.
 
-**Implemented, but not yet verified with an actual 1440p120 source.** Hardware
-tests on the current PS5 1080p59.94 signal verified 1080p→720p FPGA scaling,
-30 fps capture pacing, live 1080p preview, stereo audio, and concurrent HDMI
-monitoring without DMA guard failures. Dual-pixel receiver programming and the
-1440p→1080p scaler configuration pass hardware-independent tests. These are
-not substitutes for a real 1440p120 picture, audio and passthrough test.
+**1440p59.94 input → 1080p59.94 capture is hardware verified.** A 300-frame
+PS5 capture passed with intact DMA guards; the saved image showed the full home
+screen with correct colors. Capture can be closed and reopened. The user also
+confirmed 1440p HDMI passthrough. Actual **1440p120 input/passthrough with 1080p60
+capture remains unverified**; a 60 Hz home-screen test does not establish it.
+
+Version 0.45.1 fixes the scaled-mode `error -95` stop during format negotiation,
+configures the FPGA for the receiver's dual-pixel DDR output, and restores that
+configuration after capture stops. Unsupported formats now wait for a valid
+RGB8 SDR signal. Capture can continue while the connected monitor's RxSense is
+inactive. Transport failures still stop with a diagnostic error.
+
+Stereo audio was verified with the earlier 1080p source. The 1440p test opened
+48 kHz stereo PCM without DMA errors, but its recording was silent; non-silent
+audio at this input mode still needs verification.
 
 Close OBS/GC573 Preview, then run as your desktop user:
 

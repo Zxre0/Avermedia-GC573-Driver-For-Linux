@@ -209,6 +209,10 @@ static int snapshot(const struct gc573_block_io *io, struct gc573_passthrough_st
 
 			ret = gc573_splitter_video_clock(io, &p->identity, &p->link, &p->measured,
 							 0, 2);
+			if (gc573_splitter_video_link_wait(&p->measured, ret)) {
+				p->active = p->configured = 0;
+				return -EAGAIN;
+			}
 			if (ret)
 				return ret;
 			p->millihz =
@@ -235,8 +239,12 @@ static int snapshot(const struct gc573_block_io *io, struct gc573_passthrough_st
 		return 0;
 	}
 	/* RGB8 SDR only, exactly the format advertised by our filtered EDID. */
-	if ((p->snapshot[0] & 0xf2) || (p->snapshot[17] & 0x60))
-		return -EOPNOTSUPP;
+	if ((p->snapshot[0] & 0xf2) || (p->snapshot[17] & 0x60)) {
+		p->format_rejected = 1;
+		p->format_waits++;
+		return p->scaled ? -EAGAIN : -EOPNOTSUPP;
+	}
+	p->format_rejected = 0;
 	ret = gc573_splitter_video_tx_read(io, &p->last, 2, 0x84);
 	if (ret)
 		return ret;
@@ -251,9 +259,17 @@ static int snapshot(const struct gc573_block_io *io, struct gc573_passthrough_st
 	} else if ((i & 0xe0) != 0x80 || !(p->last.data[0] & 8))
 		return -EOPNOTSUPP;
 	ret = gc573_splitter_video_external(io, &p->identity, &p->link, &p->video, &p->advertised);
+	if (gc573_splitter_video_link_wait(&p->video, ret))
+		return -EAGAIN;
+	if (p->scaled && gc573_splitter_video_format_wait(&p->video, ret)) {
+		p->format_rejected = 1;
+		p->format_waits++;
+		return -EAGAIN;
+	}
 	if (ret)
 		return ret;
 	p->millihz = (unsigned long long)p->video.pixel_khz * 1000000 / (ht * vt);
+	p->format_rejected = 0;
 	p->configured = p->active = 1;
 	p->changes++;
 	return 0;

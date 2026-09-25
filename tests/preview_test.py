@@ -27,6 +27,15 @@ class PreviewTest(unittest.TestCase):
         self.assertIsNotNone(preview.capture_problem(dict(state, combined_error=-110)))
         self.assertIsNotNone(preview.capture_problem(dict(state, input_width=3840, input_height=2160)))
 
+    def test_scaled_format_wait_clears_when_supported_input_returns(self):
+        state = dict(scaled_capture=1, combined_ready=1, hdmi_ready=1,
+                     input_present=1, input_width=2560, input_height=1440,
+                     external_active=0, external_waiting=1)
+        self.assertIsNone(preview.capture_problem(state))
+        self.assertIn('resume automatically', preview.capture_problem(
+            dict(state, external_format_rejected=1)))
+        self.assertIsNone(preview.capture_problem(dict(state, external_format_rejected=0)))
+
     def test_slow_renderer_discards_stale_frames(self):
         slot = preview.LatestFrame()
         for i in range(100):

@@ -16,6 +16,13 @@ int main(void)
 		}
 	assert(gc573_mode_bytes(1280,720) == 2764800);
 	assert(gc573_mode_bytes(1920,1080) == 6220800);
+	/* Live 1440p dual-DDR reports 640 interface periods per active line. */
+	assert(gc573_input_pixels(640, 3) == 2560);
+	assert(gc573_input_pixels(1920, 0) == 1920);
+	assert(gc573_input_pixels(1280, 0) == 1280);
+	assert(!gc573_input_pixels(UINT_MAX, 3));
+	assert(!gc573_input_pixels(640, UINT_MAX));
+	assert(!gc573_input_pixels(640, 4));
 	puts("PASS: mode geometry and frame bounds, including overflow inputs");
 	return 0;
 }

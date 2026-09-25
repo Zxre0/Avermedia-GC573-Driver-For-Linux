@@ -1863,18 +1863,18 @@ int main(void)
 	}
 	{
 		struct gc573_splitter_video_result video;
-		static const unsigned int checks[] = { 180, 183, 188, 191, 194, 197,
-			200, 203, 206, 209, 212, 215, 218, 221, 225, 228 };
+		static const unsigned int checks[] = { 187, 190, 195, 198, 201, 204,
+			207, 210, 213, 216, 219, 222, 225, 228, 232, 235 };
 
 		f = video_baseline();
 		f.video_setup = 2;
 		f.tx_ports[1][3] = 0x9f;
 		assert(!run_video(&f, &video) && video.complete && video.output_enabled);
-		assert(video.transactions == 228 && video.writes_started == 59 && video.steps_verified == 38);
+		assert(video.transactions == 235 && video.writes_started == 61 && video.steps_verified == 40);
 		assert(video.bank_verified && !video.bank && video.format_valid);
 		assert(f.ms == 201 && (f.tx_ports[1][0xc0] & 3) == 1);
 		assert(!(f.tx_ports[1][0xc1] & 0xb5) && (f.tx_ports[1][0xc1] & 8));
-		for (i = 1; i <= 228; i++) {
+		for (i = 1; i <= 235; i++) {
 			f = video_baseline();
 			f.video_setup = 2;
 			f.tx_ports[1][3] = 0x9f;
@@ -1906,7 +1906,7 @@ int main(void)
 			assert(run_video(&f, &video) == (i == 5 ? -ENOLINK : -EOPNOTSUPP));
 			assert(!video.output_enabled && !video.complete && !f.rx_bank);
 		}
-		puts("PASS: RGB8 output, all 228 transfer failures, 16 readbacks, format and link gates");
+		puts("PASS: RGB8 output, all 235 transfer failures, 16 readbacks, format and link gates");
 	}
 	/* TX2 must never mutate the internal TX1, including partial failures. */
 	{
@@ -1927,7 +1927,7 @@ int main(void)
 				assert(f.tx_ports[2][0x86] == 8);
 			}
 		}
-		for (failure = 0; failure <= 228; failure++) {
+		for (failure = 0; failure <= 235; failure++) {
 			f = video_baseline();
 			f.selected_port = 2;
 			f.video_setup = 2;
@@ -1947,14 +1947,14 @@ int main(void)
 		f.selected_port = 2;
 		f.tx_ports[2][3] = 0x14;
 		assert(run_video(&f, &video) == -ENOLINK && !f.writes);
-		puts("PASS: TX2 output, 285 transfer failures, absent sink, TX1 preserved");
+		puts("PASS: TX2 output, 292 transfer failures, absent sink, TX1 preserved");
 	}
 	{
 		struct gc573_passthrough_result pass;
 		unsigned char internal[256];
 		unsigned int failure;
 
-		for (failure = 0; failure <= 327; failure++) {
+		for (failure = 0; failure <= 334; failure++) {
 			f = video_baseline();
 			f.selected_port = 2;
 			f.video_setup = 2;
@@ -1968,7 +1968,7 @@ int main(void)
 			assert(pass.enabled == !failure);
 			assert(!memcmp(internal, f.tx_ports[1], sizeof(internal)));
 			if (!failure) {
-				assert(f.transactions == 327 && pass.sink_present && !pass.preserved);
+				assert(f.transactions == 334 && pass.sink_present && !pass.preserved);
 				unsigned int writes = f.writes;
 				assert(!run_passthrough(&f, &pass) && pass.enabled && pass.preserved);
 				assert(f.writes == writes);
@@ -1981,7 +1981,7 @@ int main(void)
 		f.tx_ports[2][3] = 0x17;
 		f.tx_ports[2][0x84] = 0xff;
 		assert(run_passthrough(&f, &pass) == -EOPNOTSUPP && !f.writes);
-		puts("PASS: automatic TX2 startup, 327 failures, active output preserved, absent/unknown gates");
+		puts("PASS: automatic TX2 startup, 334 failures, active output preserved, absent/unknown gates");
 	}
 	/* Compare all accepted rates against the Windows multiply/shift math. */
 	for (i = 10000; i <= 34000; i++) {

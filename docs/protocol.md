@@ -185,3 +185,24 @@ Runtime splitter snapshots and ALSA prepare serialize through one mutex.
 Read-only identification tolerates only explicitly owned video/audio IRQ bits
 0x22; I2C IRQ ownership and unknown pending bits remain rejected. Cold GPIO/reset
 preflights keep their stricter idle requirements.
+
+
+## Scaled input packing and negotiation recovery (0.45.1)
+
+BAR0 `0x1088` selects the receiver interface: 0 single SDR, 1 dual SDR,
+2 single DDR, 3 dual DDR. The traced dual output also sets `0x1040` bit5.
+The combined worker programs and verifies these only with capture/DMA idle.
+On the tested 2560×1440 RGB8 input, `0x1008` reports 640 interface clock periods
+and `0x100c` reports 1440 lines. Expanding horizontal periods by the selected
+packing gives pixels for scaler geometry, clipping and input guards. Real
+1920×1080 output frames verify the dual-DDR path; no source-sized DMA buffer is
+allocated. Video reset clears packing, so reset saves/restores it and verifies
+the result under the shared HDMI/audio control mutex.
+
+Format validation precedes TX reset/analog programming. A rejected RGB/depth/
+geometry snapshot with restored bank and completed read enters a format wait;
+transport failures and incomplete programming still stop. Link loss during
+initial read-only validation is retryable. Capture follows stable source timing
+independently of the external monitor's RxSense, while external setup waits for
+that monitor. Input geometry/rate changes clear capture readiness and re-run
+internal HDMI setup. Physical 60↔120 changes remain to be tested.
