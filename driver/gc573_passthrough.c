@@ -162,6 +162,7 @@ static int snapshot(const struct gc573_block_io *io, struct gc573_passthrough_st
 		return ret;
 	if (!(p->link.tx[2] & 1) || !(p->link.rx[8] & 0x10) || !(p->link.rx[11] & 0x80)) {
 		p->active = p->configured = p->stable = 0;
+		p->video.waiting_link = 0;
 		p->measured.complete = p->scdc_status_valid = 0;
 		return -EAGAIN;
 	}
@@ -193,6 +194,7 @@ static int snapshot(const struct gc573_block_io *io, struct gc573_passthrough_st
 		for (i = 0; i < 18; i++)
 			p->previous[i] = p->snapshot[i];
 		p->active = p->configured = p->stable = 0;
+		p->video.waiting_link = 0;
 		p->measured.complete = p->scdc_status_valid = 0;
 		return -EAGAIN;
 	}
@@ -258,7 +260,11 @@ static int snapshot(const struct gc573_block_io *io, struct gc573_passthrough_st
 			return ret;
 	} else if ((i & 0xe0) != 0x80 || !(p->last.data[0] & 8))
 		return -EOPNOTSUPP;
-	ret = gc573_splitter_video_external(io, &p->identity, &p->link, &p->video, &p->advertised);
+	ret = p->video.waiting_link ?
+		gc573_splitter_video_resume(io, &p->identity, &p->link, &p->video, 2, &p->advertised) :
+		gc573_splitter_video_external(io, &p->identity, &p->link, &p->video, &p->advertised);
+	if (ret == -EAGAIN)
+		return ret;
 	if (gc573_splitter_video_link_wait(&p->video, ret))
 		return -EAGAIN;
 	if (p->scaled && gc573_splitter_video_format_wait(&p->video, ret)) {

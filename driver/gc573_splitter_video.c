@@ -221,6 +221,31 @@ static int video_validate(struct video_context *c)
 	return 0;
 }
 
+static int video_finish_output(struct video_context *c)
+{
+	struct gc573_splitter_video_result *r = c->r;
+	int ret;
+
+	ret = video_read(c, 0x34 + c->port, 3);
+	if (ret)
+		return ret;
+	r->tx_status = r->last.data[0];
+	if ((r->tx_status & 15) != 15) {
+		r->waiting_link = 1;
+		return -ENOLINK;
+	}
+	r->waiting_link = 0;
+	/* The unencrypted runtime branch clears these two output-control bits. */
+	ret = video_set(c, 0x91, 0x10, 0, 0x10);
+	if (ret)
+		return ret;
+	ret = video_set(c, 0xc1, 1, 0, 1);
+	if (ret)
+		return ret;
+	r->output_enabled = 1;
+	return 0;
+}
+
 static int video_output(struct video_context *c)
 {
 	struct gc573_splitter_video_result *r = c->r;
@@ -249,21 +274,7 @@ static int video_output(struct video_context *c)
 	}
 	c->io->sleep_ms(c->io->ctx, 100);
 	if (c->sink) { ret=video_scdc(c); if(ret) return ret; }
-	ret = video_read(c, 0x34 + c->port, 3);
-	if (ret)
-		return ret;
-	r->tx_status = r->last.data[0];
-	if ((r->tx_status & 15) != 15)
-		return -ENOLINK;
-	/* The unencrypted runtime branch clears these two output-control bits. */
-	ret = video_set(c, 0x91, 0x10, 0, 0x10);
-	if (ret)
-		return ret;
-	ret = video_set(c, 0xc1, 1, 0, 1);
-	if (ret)
-		return ret;
-	r->output_enabled = 1;
-	return 0;
+	return video_finish_output(c);
 }
 
 static int video_first_scdt(struct video_context *c)
@@ -462,6 +473,50 @@ int gc573_splitter_video_external(const struct gc573_block_io *io,
 	struct gc573_splitter_video_result *r, const struct gc573_passthrough_edid *sink)
 { return sink ? video_clock(io,identity,link,r,2,2,sink) : -EINVAL; }
 
+/* Resume only a completed output setup whose final link check was pending.
+ * Re-measure first: PS5 mode tests may already have changed the source again.
+ */
+int gc573_splitter_video_resume(const struct gc573_block_io *io,
+	struct gc573_splitter_result *identity, struct gc573_splitter_link_result *link,
+	struct gc573_splitter_video_result *r, unsigned int port,
+	const struct gc573_passthrough_edid *sink)
+{
+	const struct gc573_passthrough_edid internal = {.max_tmds_khz = 510000, .scdc = 1};
+	struct gc573_splitter_video_result measured;
+	struct video_context c = {.io = io, .r = r, .port = port,
+		.sink = port == 1 ? &internal : sink};
+	int ret;
+
+	if ((port != 1 && port != 2) || !c.sink ||
+	    !gc573_splitter_video_link_wait(r, -ENOLINK) || !r->waiting_link ||
+	    r->last_address != 0x34 + port)
+		return -EINVAL;
+	ret = video_clock(io, identity, link, &measured, 0, port, 0);
+	if (gc573_splitter_video_link_wait(&measured, ret))
+		return -ENOLINK;
+	if (ret) {
+		r->waiting_link = 0;
+		return ret;
+	}
+	r->waiting_link = 0;
+	if (measured.link_khz < r->link_khz * 9 / 10 ||
+	    measured.link_khz > r->link_khz * 11 / 10 ||
+	    (measured.link_khz > 340000) != (r->link_khz > 340000))
+		return -EAGAIN; /* New rate requires a fresh analog/SCDC setup. */
+	r->pixel_khz = measured.pixel_khz;
+	r->link_khz = measured.link_khz;
+	r->depth = measured.depth;
+	c.start = io->time_ms(io->ctx);
+	ret = video_validate(&c);
+	if (ret)
+		return ret;
+	r->phase = 8;
+	ret = video_finish_output(&c);
+	if (!ret)
+		r->complete = 1;
+	return ret;
+}
+
 /* TX2 is the newly observed external sink; TX1 must remain untouched.
  * Called once before capture/audio registration, so the I2C engine is idle.
  * Unknown states fail closed, and an absent sink is not a capture error.
@@ -539,9 +594,14 @@ int gc573_splitter_video_format_wait(const struct gc573_splitter_video_result *r
 
 int gc573_splitter_video_link_wait(const struct gc573_splitter_video_result *r, int error)
 {
-	/* The link can disappear between snapshot and validation. This exit is
-	 * before any TX programming; transport errors remain fatal.
+	/* Accept read-only preflight loss or the explicit completed-setup wait.
+	 * A failed programming transfer never sets waiting_link.
 	 */
-	return error == -ENOLINK && r->phase == 1 && !r->prerequisite_error &&
-		!r->writes_started;
+	if (error != -ENOLINK)
+		return 0;
+	if (r->phase == 1)
+		return !r->prerequisite_error && !r->writes_started;
+	return r->phase == 8 && r->waiting_link && r->output_setup_complete &&
+		r->bank_verified && !r->bank && r->last_reg == 3 &&
+		r->last.status == GC573_BLOCK_READ_DONE && r->last.bytes_read == 1;
 }

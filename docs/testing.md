@@ -301,3 +301,29 @@ hotplug. The measured 59.94 Hz result must not be presented as 120 Hz validation
 The code commit's GitHub Actions checks also passed, including an Ubuntu 24.04
 kernel-header build. The restored live preview exceeded 9,500 error-free frames
 while receiving nonzero PCM. Physical 120 Hz gameplay remains untested.
+
+
+## PS5 120 Hz transition failure and continuation (0.45.2, 2026-09-24)
+
+The user reported that 120 Hz did not work. The stopped 0.45.1 worker had
+external_error=-67, external_video_phase=8 and last_reg=0x03 with a completed
+I2C read. The internal receiver had previously measured 494080–496614 kHz,
+but the final snapshot had no FPGA input. A bounded diagnostic read after both
+workers/DMA stopped found TX1 C0=0x77/83=0x08 (high ratio), TX2 C0=0x31/83=0x00
+(low ratio), and a capture receiver without SCDT. Both transmitters eventually
+reported 0x9f, after the worker had already stopped. These observations identify
+an unrecovered handshake failure, not successful 120 Hz capture.
+
+0.45.2 records a pending link check only after output setup completes. Subsequent
+polls remeasure the clock and validate the input before completing output enable;
+a changed clock or TMDS ratio discards the pending configuration and starts a
+fresh checked setup. Transport errors never enter this continuation. Tests cover
+both transmitters, a late lock, RxSense loss, 120→60 clock change, and every
+continuation transfer failure. All C sanitizer and 47 Python tests passed.
+
+The patched module loaded on CachyOS 7.2.6-1-cachyos. Both transmitters reported
+ready, external and combined errors cleared, and 1440p59.94 → 1080p59.94 live
+preview recovered with intact guards over 3,500 frames. Module builds also
+passed for 7.2.3-1-cachyos and 6.18.52-1-cachyos-lts. A live 120 Hz source has
+not yet been supplied after this patch; successful 120 Hz capture and transitions
+remain unverified.

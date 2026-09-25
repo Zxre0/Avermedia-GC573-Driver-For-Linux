@@ -202,6 +202,78 @@ int main(void)
 		assert(!gc573_passthrough_poll(&io, &p));
 		assert(p.active && p.configured && !p.waiting && !p.error && !p.format_rejected);
 	}
+	/* Output setup finished, but the final TX link bit arrived late. */
+	f = pt_setup();
+	f.tx_ports[2][3] = 0x17;
+	assert(gc573_splitter_video_external(&io, &identity, &link, &video, &caps) == -ENOLINK);
+	assert(video.waiting_link && video.output_setup_complete && !video.output_enabled);
+	assert(gc573_splitter_video_link_wait(&video, -ENOLINK));
+	{
+		struct gc573_splitter_video_result pending = video;
+		struct fake before = f;
+		unsigned int j, count;
+
+		n = f.writes;
+		assert(gc573_splitter_video_resume(&io, &identity, &link, &video, 2, &caps) == -ENOLINK);
+		assert(video.waiting_link && !video.complete);
+		for (j = n; j < f.writes; j++)
+			assert(f.trace[j][1] != 1 && f.trace[j][1] != 0xc0);
+		f = before;
+		video = pending;
+		f.tx_ports[2][3] = 0x9f;
+		n = f.writes;
+		assert(!gc573_splitter_video_resume(&io, &identity, &link, &video, 2, &caps));
+		assert(video.complete && video.output_enabled && !video.waiting_link);
+		for (j = n; j < f.writes; j++)
+			assert(f.trace[j][1] != 1 && f.trace[j][1] != 0xc0);
+		count = f.transactions - before.transactions;
+		for (j = 1; j <= count; j++) {
+			f = before;
+			video = pending;
+			f.tx_ports[2][3] = 0x9f;
+			f.fail_at = f.transactions + j;
+			assert(gc573_splitter_video_resume(&io, &identity, &link, &video, 2, &caps) == -ETIMEDOUT);
+			assert(f.transactions == f.fail_at && !video.complete && !video.waiting_link);
+		}
+		/* A 120->60 clock change invalidates the pending high-rate setup. */
+		f = before;
+		video = pending;
+		f.tx_ports[2][3] = 0x9f;
+		f.video_raw *= 2;
+		assert(gc573_splitter_video_resume(&io, &identity, &link, &video, 2, &caps) == -EAGAIN);
+		assert(!video.waiting_link && !video.complete);
+		assert(!gc573_splitter_video_external(&io, &identity, &link, &video, &caps));
+		assert(!scdc[0x20] && !(f.tx_ports[2][0xc0] & 0x46));
+		f = before;
+		video = pending;
+		video.last.status = 8;
+		n = f.transactions;
+		assert(gc573_splitter_video_resume(&io, &identity, &link, &video, 2, &caps) == -EINVAL);
+		assert(f.transactions == n);
+	}
+	f = pt_setup();
+	f.tx_ports[2][3] = 0x17;
+	p = (struct gc573_passthrough_state){.phase = 3, .scaled = 1, .advertised = caps};
+	assert(!gc573_passthrough_poll(&io, &p));
+	assert(!gc573_passthrough_poll(&io, &p) && p.video.waiting_link && !p.error);
+	f.tx_ports[2][3] = 0x9f;
+	assert(!gc573_passthrough_poll(&io, &p) && p.active && !p.video.waiting_link);
+	/* The same continuation must address TX1 without changing TX2. */
+	f = pt_setup();
+	f.selected_port = 1;
+	memcpy(f.tx_ports[1], f.tx_ports[2], 256);
+	f.tx_ports[1][3] = 0x17;
+	assert(gc573_splitter_video_internal(&io, &identity, &link, &video) == -ENOLINK);
+	assert(video.waiting_link);
+	f.tx_ports[1][3] = 0x9d;
+	n = f.writes;
+	assert(gc573_splitter_video_resume(&io, &identity, &link, &video, 1, 0) == -ENOLINK);
+	assert(video.waiting_link && f.writes == n);
+	f.tx_ports[1][3] = 0x9f;
+	assert(!gc573_splitter_video_resume(&io, &identity, &link, &video, 1, 0));
+	assert(video.complete && !video.waiting_link);
+	for (i = n; i < f.writes; i++) assert(f.trace[i][0] != 0x36);
+	puts("PASS: late HDMI lock continuation, 120->60 clock revalidation, all resume transport failures");
 	puts("PASS: transient format waits recover; unsupported input never resets TX; transport failures remain stopped");
 	puts("PASS: HDMI 2.0 SCDC, 498/595 MHz TX2 output, low-rate restore, EDID "
 	     "SRAM verification, mode worker and failure injection");

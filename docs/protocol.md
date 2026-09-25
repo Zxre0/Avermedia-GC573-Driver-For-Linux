@@ -206,3 +206,16 @@ initial read-only validation is retryable. Capture follows stable source timing
 independently of the external monitor's RxSense, while external setup waits for
 that monitor. Input geometry/rate changes clear capture readiness and re-run
 internal HDMI setup. Physical 60↔120 changes remain to be tested.
+
+
+### Deferred transmitter link readiness (0.45.2)
+
+A failed final TX register-3 link check is retryable only when the output setup
+completed, the bank is verified at zero and the last single-byte read completed.
+The continuation remeasures the same transmitter's clock before further output
+writes. A >10% rate change or a crossing of the 340 MHz TMDS-ratio threshold
+invalidates the pending setup. Otherwise it validates the current format and
+finishes the two output-control writes once the link is ready. It does not replay
+analog/reset programming merely because a lock bit is late. Source snapshot
+changes cancel the pending continuation; I2C errors and incomplete writes still
+stop. Both TX1 and TX2 expose their pending state and last link status in sysfs.

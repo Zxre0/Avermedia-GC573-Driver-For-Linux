@@ -355,12 +355,16 @@ static int gc573_combined_poll(struct gc573_device *card)
 	if (!p->stable || p->format_rejected || card->combined_changes != p->changes) {
 		smp_store_release(&card->hdmi_ready, false);
 		card->combined_phase = 0;
+		h->video.waiting_link = 0;
 		card->combined_changes = p->changes;
 	}
 	if (!p->stable || p->format_rejected) return 0;
 	switch (card->combined_phase) {
 	case 0:
-		ret = gc573_splitter_video_internal(io, &h->identity, &h->link, &h->video);
+		ret = h->video.waiting_link ?
+			gc573_splitter_video_resume(io, &h->identity, &h->link, &h->video, 1, NULL) :
+			gc573_splitter_video_internal(io, &h->identity, &h->link, &h->video);
+		if (ret == -EAGAIN) return 0;
 		if (gc573_splitter_video_link_wait(&h->video, ret)) return 0;
 		if (gc573_splitter_video_format_wait(&h->video, ret)) {
 			card->combined_format_waits++;
@@ -428,6 +432,7 @@ static int gc573_combined_poll(struct gc573_device *card)
 		    period > card->combined_period * 11 / 10) {
 			smp_store_release(&card->hdmi_ready, false);
 			card->combined_phase = 0;
+			h->video.waiting_link = 0;
 		}
 		break;
 	}
@@ -1451,6 +1456,9 @@ static ssize_t bringup_status_show(struct device *dev,
 			READ_ONCE(p->last.status), READ_ONCE(p->video.last_reg),
 			READ_ONCE(p->video.expected), READ_ONCE(p->video.observed));
 		used += sysfs_emit_at(buf, used,
+			"external_output_waiting=%u\nexternal_output_tx_status=0x%02x\n",
+			p->video.waiting_link, p->video.tx_status);
+		used += sysfs_emit_at(buf, used,
 			"external_format_waits=%u\nexternal_format_rejected=%u\n"
 			"external_format_avi=0x%x\nexternal_format_depth=0x%x\nexternal_format_cf=0x%x\n"
 			"external_format_rx13=0x%x\nexternal_candidate_pixel_khz=%u\n",
@@ -1472,6 +1480,11 @@ static ssize_t bringup_status_show(struct device *dev,
 			ioread32(card->bar + 0x1004), ioread32(card->bar + 0x1008),
 			ioread32(card->bar + 0x100c), ioread32(card->bar + 0x1088));
 	}
+
+	if (scaled_capture)
+		used += sysfs_emit_at(buf, used,
+			"combined_output_waiting=%u\ncombined_output_tx_status=0x%02x\n",
+			card->hdmi.video.waiting_link, card->hdmi.video.tx_status);
 
 	if (probe_sink) {
 		const struct gc573_sink_result *r = &card->sink;
@@ -1853,4 +1866,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.45.1");
+MODULE_VERSION("0.45.2");
