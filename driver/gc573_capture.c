@@ -366,7 +366,7 @@ static dma_addr_t cap_slot_address(struct gc573_capture *c, unsigned int slot)
 
 static int cap_enable(struct gc573_capture *c)
 {
-	unsigned int slot;
+	unsigned int slot, timer_period;
 	unsigned long flags;
 	const struct gc573_block_io scaler_io = {
 		.ctx = c, .read = cap_led_read, .write = cap_led_write,
@@ -390,6 +390,18 @@ static int cap_enable(struct gc573_capture *c)
 	for (slot = 0; slot < 4; slot++)
 		reinit_completion(&c->ring_done[slot]);
 	cap_write(c, 0x1000, c->video_control);
+	/* The 148.5 MHz capture timer limits DMA even with control bit5 clear.
+	 * Reset leaves 2475000 (60 fps); a full queue cannot overcome that cap.
+	 * Keep the established 60 fps timer for the paced low-rate path, and
+	 * bound the native timer by the source rate and 120 fps. Reapply on
+	 * every stream start/recovery because video reset restores the default.
+	 */
+	timer_period = gc573_capture_timer(c->fps, cap_read(c, 0x1010));
+	if (!timer_period)
+		return -ENOLINK;
+	cap_write(c, 0x103c, timer_period);
+	if (cap_read(c, 0x103c) != timer_period)
+		return -EIO;
 	/* Every hardware slot owns a distinct frame and aligned descriptor list. */
 	for (slot = 0; slot < 4; slot++) {
 		cap_write(c, 0x308 + slot * 12, lower_32_bits(cap_slot_address(c, slot)));
@@ -1168,10 +1180,10 @@ ssize_t gc573_capture_status(struct gc573_capture *c, char *buf, ssize_t used)
 		"capture_pcie_mbps=%u\ncapture_native_1440p120=%u\n",
 		c->pcie_bandwidth, !!gc573_capture_max_fps(2560, 1440, c->pcie_bandwidth));
 	used += sysfs_emit_at(buf, used,
-		"capture_width=%u\ncapture_height=%u\ncapture_fps_limit=%u\n"
+		"capture_width=%u\ncapture_height=%u\ncapture_fps_limit=%u\ncapture_timer_period=%u\n"
 		"capture_scaler_error=%d\ncapture_scaler_enabled=%u\ncapture_scaler_verified=%u\n"
 		"capture_scaler_last_reg=0x%x\ncapture_scaler_expected=0x%x\ncapture_scaler_observed=0x%x\n",
-		c->width, c->height, c->fps, c->scaler_error, c->scaler.enabled,
+		c->width, c->height, c->fps, cap_read(c, 0x103c), c->scaler_error, c->scaler.enabled,
 		c->scaler.verified, c->scaler.last_reg, c->scaler.expected, c->scaler.observed);
 	used += sysfs_emit_at(buf, used, "capture_video_registered=%u\ncapture_streaming=%u\ncapture_link_recoveries=%u\ncapture_frames=%u\ncapture_interrupts=%u\n",
 		c->registered, READ_ONCE(c->streaming), c->link_recoveries, c->sequence, c->interrupts);

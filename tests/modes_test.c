@@ -32,6 +32,17 @@ int main(void)
 	assert(gc573_capture_rate(30, 120) == 30);
 	assert(gc573_capture_rate(0, 120) == 24);
 	assert(!gc573_capture_rate(120, 0));
+	/* A 120 fps request must not duplicate a 59.94 Hz source at 120 fps.
+	 * Real 119.889 Hz input must also escape the reset-time 60 fps cap.
+	 */
+	assert(gc573_capture_timer(120, 834103) == 1238643);
+	assert(gc573_capture_timer(120, 1668206) == 2477286);
+	assert(gc573_capture_timer(120, 833333) == 1237500);
+	assert(gc573_capture_timer(60, 834103) == 2475000);
+	assert(gc573_capture_timer(30, 834103) == 2475000);
+	assert(!gc573_capture_timer(120, 0));
+	assert(!gc573_capture_timer(120, UINT_MAX));
+	assert(!gc573_capture_timer(90, 834103));
 	/* Live 1440p dual-DDR reports 640 interface periods per active line. */
 	assert(gc573_input_pixels(640, 3) == 2560);
 	assert(gc573_input_pixels(1920, 0) == 1920);

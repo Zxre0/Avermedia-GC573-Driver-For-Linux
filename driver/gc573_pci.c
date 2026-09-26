@@ -1892,4 +1892,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.46.0");
+MODULE_VERSION("0.46.1");

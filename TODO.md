@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.46.0. Hardware validation and implementation are tracked
+Current driver: 0.46.1. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
@@ -95,6 +95,9 @@ separately; an unchecked item has not been demonstrated complete.
 - [x] Add native 2560×1440 BGR24 capture buffers, scaler bypass and 120 fps
   V4L2 negotiation for Gen2 ×4 links, with upstream bandwidth checks.
   Preview selects native capture automatically, with a 1080p60 fallback option.
+- [x] Find and fix the FPGA timer’s reset-time 60 fps cap. A five-second live
+  119.89 Hz input test reached approximately 119.8 fps with zero capture errors
+  and intact DMA guards. The native timer is also bounded by the source rate.
 - [ ] Verify sustained native 1440p120 capture, full-frame image integrity,
   audio and recovery through source-rate/resolution changes on the ×4 link.
 

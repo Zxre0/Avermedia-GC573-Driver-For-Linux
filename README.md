@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.46.0 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.46.1 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -48,7 +48,7 @@ Those are **card specifications**, not features already working in this driver.
 | --- | --- |
 | 1080p60 video | Hardware verified in OBS; RGB 8-bit HDMI input → V4L2 BGR24 |
 | 720p and lower-rate 1080p | Bounded support implemented; additional source modes need hardware validation |
-| Native 1440p120 capture | Implemented in 0.46.0 for PCIe Gen2 ×4; live full-rate verification pending (see below) |
+| Native 1440p120 capture | 0.46.1 fixes the FPGA’s 60 fps timer cap; a live 119.89 Hz test delivered about 119.8 fps on Gen2 ×4; longer validation remains pending |
 | 4K capture / 1440p144 capture / HDR | Not implemented |
 | Hardware scaling | 1440p119.89 input → 1080p60 capture, 1440p59.94 → 1080p59.94, and 1080p → 720p verified |
 | 1440p120 HDMI OUT + 1080p60 capture | Verified on a PS5 in 0.45.3: 119.89 Hz input, 60 fps capture, nonzero audio; user confirms 120 Hz output |
@@ -111,7 +111,7 @@ The preview works in **capture** and **scaled** modes with HDCP disabled. It
 shows HDMI input resolution/rate separately from preview resolution and its
 capture frame-rate limit. Passthrough-only mode does not provide host capture.
 
-## Experimental native 1440p120 capture (0.46.0)
+## Experimental native 1440p120 capture (0.46.1)
 
 On PCIe Gen2 ×4, the driver now exposes **2560×1440 BGR24 at up to 120 fps**
 to OBS and other V4L2 applications. It uses the existing combined HDMI profile
@@ -136,10 +136,13 @@ The source must actually output 1440p120 RGB8 SDR with HDCP disabled. A 60 Hz
 source produces 60 captured frames per second even when the capture limit is
 120. A monitor refresh rate or a V4L2 format listing alone does not verify capture
 throughput. Native 1440p60 frame delivery, a full-resolution image, audio, reopening and
-1080p/720p fallback are verified on the test PC. The final four-slot DMA queue
-still needs a sustained native 120 fps test. Earlier single-transfer tests
-delivered only 60 fps with a 120 Hz input. Preview now displays the measured
-capture rate separately from incoming HDMI timing.
+1080p/720p fallback are verified on the test PC. Version 0.46.0 still delivered
+60 fps from a 120 Hz input because the FPGA capture timer retained its reset
+default. Version 0.46.1 programs that timer on stream start and recovery, bounded
+by the source rate. A five-second live timer test delivered about 119.8 native
+frames and DMA completions per second, with intact guards and no capture errors.
+Longer 120 fps runs and motion/frame-uniqueness checks remain pending. Preview
+displays the measured capture rate separately from incoming HDMI timing.
 
 Capture memory now holds 11,059,200 bytes per frame. Larger formats, 144 Hz
 capture, YUV output and HDR remain unsupported. The previously verified

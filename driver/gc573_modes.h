@@ -48,4 +48,21 @@ static inline unsigned int gc573_capture_rate(unsigned int requested, unsigned i
 	 */
 	return requested > 60 && requested < 120 ? 60 : requested;
 }
+/* Input timing uses 100 MHz; the capture timer uses 148.5 MHz. Preserve the
+ * established timer on the software-paced <=60 fps path. The continuous ring
+ * must not sample faster than either its requested cap or the HDMI source.
+ */
+static inline unsigned int gc573_capture_timer(unsigned int fps, unsigned int input_period)
+{
+	unsigned int requested, source;
+
+	if (fps <= 60)
+		return 2475000U;
+	if (fps != 120 || input_period < 100000000U / 121 ||
+	    input_period > 100000000U / 23)
+		return 0;
+	requested = 148500000U / fps;
+	source = ((unsigned long long)input_period * 1485U + 999U) / 1000U;
+	return source > requested ? source : requested;
+}
 #endif

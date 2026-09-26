@@ -169,11 +169,18 @@ bit0 clear. A failed readback prevents DMA activation. Loss/change of input
 stops DMA, then rebuilds the output descriptors/scaler only after HDMI readiness
 and supported FPGA input geometry return. The output queue size stays fixed.
 
-The vendor writes capture pacing bit5 and `0x103c = 148500000 / fps`, but those
-settings alone did not lower delivered rate on this FPGA in the test path.
-They are **not used** by the implementation. Instead, capture selects complete
-frames by pacing single-frame DMA requests; unwanted source frames remain on
-the card. The scaler and external HDMI output run independently.
+Earlier low-rate tests did not establish the effect of the vendor's capture
+pacing bit5 and `0x103c = 148500000 / fps`. A later native high-rate experiment
+confirmed that `0x103c` limits DMA cadence even with bit5 clear: its reset value
+2475000 capped delivery at 60 fps despite four queued slots. Changing it to
+1237500 immediately produced approximately 119.8 fps from 119.89 Hz input.
+Version 0.46.1 programs and verifies this timer before enabling capture. For
+native high-rate output the period is the larger of 148500000/120 and the HDMI
+period converted from 100 MHz to 148.5 MHz (rounded up). This avoids doubling
+60 Hz input through the continuous ring. Lower rates retain the 60 fps hardware
+timer and software-paced single-frame requests. Stream start and recovery both
+reapply the timer after reset. `capture_timer_period` exposes the live value.
+The scaler and external HDMI output run independently.
 
 For RGB dual-TTL, traced receiver bank1 changes select C1 bit1, C0 bit0,
 BD[5:4]=1 and C4=0x20; C6 releases the second lane and C5's reset/release sequence

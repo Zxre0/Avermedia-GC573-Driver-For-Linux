@@ -408,3 +408,38 @@ returns the supported paced 60 fps cap; 120 fps remains selectable. The continuo
 DMA queue must not run 120 fps for an intermediate requested cap. The full test
 suite and three kernel builds passed after this adjustment. The native-capture
 code commit passed GitHub Actions tests and its Ubuntu header build.
+
+
+## Native capture timer correction (0.46.1, 2026-09-25)
+
+The four-slot 0.46.0 queue also reproduced the reported 60 fps limit with actual
+119.889 Hz HDMI input. A direct 600-frame V4L2 test with Preview closed delivered
+60.00 fps; DMA interrupts increased at the same rate. PCIe was Gen2 ×4, with
+256-byte maximum payload and 512-byte maximum read request, and no reported PCIe
+errors. The live capture control was 0x201: scaler and pacing bit5 were clear.
+
+A bounded experiment changed only capture timer 0x103c from 2475000 to 1237500
+and restored it afterward. During five seconds, native frame delivery and DMA
+interrupts both increased to 119.79 per second; capture_error remained zero and
+DMA guards remained intact. This isolates the reset-time timer as the observed
+60 fps bottleneck rather than the preview consumer or ring depth.
+
+Reloading the driver caused HDMI to renegotiate to 59.944 Hz. A preliminary
+fixed 120 fps timer then delivered 119.99 fps from that 60 Hz source, showing
+that this timer can repeat input frames. The final implementation therefore
+bounds the native timer by the measured HDMI period as well as the requested
+120 fps cap. It verifies the register before DMA and reapplies after reset.
+Tests cover actual 119.89/59.94 Hz periods, the 120 fps ceiling, legacy pacing,
+and invalid periods. Long native 120 fps runs, unique moving frames, and repeated
+source transitions are still pending; the short timer experiment does not prove
+those properties. Private captures and diagnostic modules are not distributed.
+
+The final 0.46.1 module was loaded on 7.2.6-1-cachyos. With 59.944 Hz input and
+120 fps requested, 600 native frames streamed at 59.94 fps; the live timer was
+2477285, with no capture error and intact guards. Reopening, a 120-frame 1080p
+fallback, and a settled full-resolution native image passed. The image showed
+the PS5's display-change dialog after the driver reload; restarting the game
+on the console is needed before another actual 120 Hz run. Preview and
+WirePlumber were restored. C sanitizer tests, 49 Python tests, shell checks,
+and W=1 builds for 7.2.6-1-cachyos, 7.2.3-1-cachyos and
+6.18.52-1-cachyos-lts passed. Only 7.2.6 was loaded.
