@@ -126,7 +126,8 @@ python3 tools/set-mode.py scaled
 ```
 
 In OBS, choose the GC573 Video Capture Device (V4L2), **2560×1440**, **BGR3/BGR24**,
-and **120 fps** (or 119.88 fps). OBS's project/output frame rate is a separate
+and **120 fps** (or 119.88 fps). Requests between 60 and 120 fps fall back to
+60 fps. OBS's project/output frame rate is a separate
 setting. For Preview, launch `gc573-preview`: it automatically selects native
 1440p120 when the input and PCIe connection support it. To keep the lighter
 1080p60 preview for Discord, use `gc573-preview --limit-1080p`.

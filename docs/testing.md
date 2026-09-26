@@ -401,3 +401,10 @@ for 7.2.6-1-cachyos, cached 7.2.3-1-cachyos and 6.18.52-1-cachyos-lts. Only 7.2.
 was loaded. The final queue has not yet been tested with sustained 120 Hz input;
 native 1440p120 throughput and transitions remain unverified. The earlier
 1440p120 passthrough plus 1080p60 capture result is a separate test.
+
+
+The final rate-selection check also passed on hardware: a native 90 fps request
+returns the supported paced 60 fps cap; 120 fps remains selectable. The continuous
+DMA queue must not run 120 fps for an intermediate requested cap. The full test
+suite and three kernel builds passed after this adjustment. The native-capture
+code commit passed GitHub Actions tests and its Ubuntu header build.

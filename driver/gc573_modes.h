@@ -35,4 +35,17 @@ static inline unsigned int gc573_capture_max_fps(unsigned int width, unsigned in
 		return 60;
 	return width == 2560 && height == 1440 && bandwidth_mbps >= 16000 ? 120 : 0;
 }
+static inline unsigned int gc573_capture_rate(unsigned int requested, unsigned int maximum)
+{
+	if (!maximum)
+		return 0;
+	if (requested < 24)
+		requested = 24;
+	if (requested > maximum)
+		requested = maximum;
+	/* Continuous ring capture is full rate. Intermediate caps use the paced
+	 * path, which is bounded at 60; never silently run 120 for a 90 fps cap.
+	 */
+	return requested > 60 && requested < 120 ? 60 : requested;
+}
 #endif

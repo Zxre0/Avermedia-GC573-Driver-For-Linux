@@ -24,6 +24,14 @@ int main(void)
 	assert(!gc573_capture_max_fps(2560,1440,0));
 	assert(gc573_capture_max_fps(1920,1080,8000) == 60);
 	assert(!gc573_capture_max_fps(3840,2160,32000));
+	assert(gc573_capture_rate(120, 120) == 120);
+	assert(gc573_capture_rate(144, 120) == 120);
+	assert(gc573_capture_rate(90, 120) == 60);
+	assert(gc573_capture_rate(119, 120) == 60);
+	assert(gc573_capture_rate(120, 60) == 60);
+	assert(gc573_capture_rate(30, 120) == 30);
+	assert(gc573_capture_rate(0, 120) == 24);
+	assert(!gc573_capture_rate(120, 0));
 	/* Live 1440p dual-DDR reports 640 interface periods per active line. */
 	assert(gc573_input_pixels(640, 3) == 2560);
 	assert(gc573_input_pixels(1920, 0) == 1920);

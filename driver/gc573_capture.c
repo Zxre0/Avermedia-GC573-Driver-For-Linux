@@ -884,7 +884,7 @@ static int cap_set_parm(struct file *file, void *priv, struct v4l2_streamparm *p
 	if (!gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth))
 		return -EOPNOTSUPP;
 	fps = f.numerator ? DIV_ROUND_CLOSEST_ULL((u64)f.denominator, f.numerator) : 60;
-	c->fps = clamp(fps, 24U, gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth));
+	c->fps = gc573_capture_rate(fps, gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth));
 	return cap_parm(file, priv, p);
 }
 
