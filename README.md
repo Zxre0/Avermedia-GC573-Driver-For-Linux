@@ -784,6 +784,8 @@ owner's GC573.
 AVerMedia's official driver packages were used to research the hardware protocol;
 their binaries are not distributed with this source.
 
+## This is completely AI Slop it works decently well in my experience. 
+
 Licensed under [GPL-2.0-only](LICENSE). Private recordings, proprietary research
 inputs, local logs, editor backups and generated build products are excluded
 from Git and source exports.
