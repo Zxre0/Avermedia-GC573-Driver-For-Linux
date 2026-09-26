@@ -23,10 +23,16 @@
 #include "gc573_audio.h"
 #include "gc573_modes.h"
 #include "gc573_scaler.h"
+#include "gc573_dma_ring.h"
 
 #define CHUNK_BYTES 65536U
 #define CHUNKS DIV_ROUND_UP(GC573_FRAME_BYTES, CHUNK_BYTES)
 #define DESCRIPTORS DIV_ROUND_UP(GC573_FRAME_BYTES, 4096U)
+#define DMA_BANKS 4U
+/* Keep each list on the same 64 KiB boundary as a standalone allocation.
+ * A packed second list at byte 43200 stalls on the observed FPGA.
+ */
+#define DESC_BANK_ENTRIES (ALIGN(DESCRIPTORS * 16U, CHUNK_BYTES) / 16U)
 struct gc573_descriptor { __le32 low, high, words, control; };
 struct capture_buffer {
 	struct vb2_v4l2_buffer vb;
@@ -36,8 +42,8 @@ struct gc573_capture {
 	struct pci_dev *pdev;
 	void __iomem *bar;
 	struct gc573_block_io io;
-	void *chunks[CHUNKS];
-	dma_addr_t addresses[CHUNKS];
+	void *chunks[CHUNKS * DMA_BANKS];
+	dma_addr_t addresses[CHUNKS * DMA_BANKS];
 	struct gc573_descriptor *desc;
 	dma_addr_t desc_address;
 	void *frame;
@@ -67,6 +73,11 @@ struct gc573_capture {
 	unsigned int sequence, slot, link_recoveries;
 	unsigned int width, height, frame_bytes, descriptors;
 	unsigned int input_width, input_height, fps, video_control;
+	unsigned int pcie_bandwidth, completed_bank;
+	bool pending, ring_active;
+	struct completion ring_done[4];
+	struct gc573_dma_ring ring;
+	unsigned int ring_consume, ring_started;
 	struct gc573_scaler_result scaler;
 	int scaler_error;
 	u64 next_frame_ns;
@@ -185,6 +196,7 @@ static int cap_stop(struct gc573_capture *c)
 	spin_unlock_irqrestore(&c->engine_lock, flags);
 	if (c->irq_requested)
 		synchronize_irq(pci_irq_vector(c->pdev, 0));
+	WRITE_ONCE(c->ring_active, false);
 	cap_write(c, 0x304, 0);
 	cap_read(c, 0x304);
 	if (!c->audio) {
@@ -222,7 +234,17 @@ static irqreturn_t cap_interrupt(int irq, void *opaque)
 	c->dma_control = cap_read(c, 0x304);
 	iowrite32(2, c->bar + 0x10);
 	c->interrupts++;
-	if ((c->dma_status & 7) == c->slot + 1) {
+	if (READ_ONCE(c->ring_active)) {
+		unsigned long flags;
+		unsigned int completed, i;
+
+		spin_lock_irqsave(&c->engine_lock, flags);
+		completed = gc573_dma_ring_complete(&c->ring, c->dma_status & 7);
+		for (i = 0; i < 4; i++)
+			if (completed & BIT(i))
+				complete(&c->ring_done[i]);
+		spin_unlock_irqrestore(&c->engine_lock, flags);
+	} else if ((c->dma_status & 7) == c->slot + 1) {
 		c->complete = 1;
 		complete(&c->done);
 	}
@@ -234,6 +256,7 @@ static bool cap_input_matches(struct gc573_capture *c)
 	u32 period = cap_read(c, 0x1010);
 
 	return (!c->io.ready || c->io.ready(c->io.ctx)) &&
+		c->width <= c->input_width && c->height <= c->input_height &&
 		(cap_read(c, 0x1004) & 1) && cap_input_width(c) == c->input_width &&
 		cap_read(c, 0x100c) == c->input_height && period >= 100000000U / 121 &&
 		period <= 100000000U / 23;
@@ -242,20 +265,25 @@ static bool cap_input_matches(struct gc573_capture *c)
 /* Called with the V4L2 queue idle, before any DMA is armed. */
 static void cap_layout(struct gc573_capture *c)
 {
-	unsigned int i, off, size, n = 0;
+	unsigned int i, bank, off, size, n = 0;
 
 	c->frame_bytes = gc573_mode_bytes(c->width, c->height);
 	for (i = 0; i < c->allocated; i++)
 		memset(c->chunks[i], 0xa5, CHUNK_BYTES);
-	for (off = 0; off < c->frame_bytes; off += size) {
-		dma_addr_t address = c->addresses[off / CHUNK_BYTES] + off % CHUNK_BYTES;
+	for (bank = 0; bank < DMA_BANKS; bank++) {
+		n = 0;
+		for (off = 0; off < c->frame_bytes; off += size) {
+			dma_addr_t address = c->addresses[bank * CHUNKS + off / CHUNK_BYTES] + off % CHUNK_BYTES;
 
-		size = min(4096U, c->frame_bytes - off);
-		c->desc[n++] = (struct gc573_descriptor) {
-			cpu_to_le32(lower_32_bits(address)), cpu_to_le32(upper_32_bits(address)),
-			cpu_to_le32(size / 4), cpu_to_le32(0x80008000),
-		};
+			size = min(4096U, c->frame_bytes - off);
+			c->desc[bank * DESC_BANK_ENTRIES + n++] = (struct gc573_descriptor) {
+				cpu_to_le32(lower_32_bits(address)), cpu_to_le32(upper_32_bits(address)),
+				cpu_to_le32(size / 4), cpu_to_le32(0x80008000),
+			};
+		}
 	}
+	c->completed_bank = 0;
+	c->pending = false;
 	c->descriptors = n;
 	cap_write(c, 0x1020, 0);
 	cap_write(c, 0x1024, c->input_width);
@@ -285,6 +313,7 @@ static int cap_prepare(struct gc573_capture *c)
 	c->input_width = c->width;
 	c->input_height = c->height;
 	c->fps = 60;
+	c->pcie_bandwidth = pcie_bandwidth_available(c->pdev, NULL, NULL, NULL);
 	/* The previous stream's reset can briefly deassert DDR readiness. */
 	for (i = 0; i < 50 && !(cap_read(c, 0x107c) & 1); i++)
 		msleep(10);
@@ -297,11 +326,11 @@ static int cap_prepare(struct gc573_capture *c)
 	c->frame = vzalloc(GC573_FRAME_BYTES);
 	if (!c->frame)
 		return -ENOMEM;
-	c->desc = dma_alloc_coherent(&c->pdev->dev, DESCRIPTORS * sizeof(*c->desc),
+	c->desc = dma_alloc_coherent(&c->pdev->dev, DMA_BANKS * DESC_BANK_ENTRIES * sizeof(*c->desc),
 				     &c->desc_address, GFP_KERNEL);
 	if (!c->desc)
 		return -ENOMEM;
-	for (i = 0; i < CHUNKS; i++) {
+	for (i = 0; i < CHUNKS * DMA_BANKS; i++) {
 		c->chunks[i] = dma_alloc_coherent(&c->pdev->dev, CHUNK_BYTES,
 						&c->addresses[i], GFP_KERNEL);
 		if (!c->chunks[i])
@@ -319,6 +348,8 @@ static int cap_prepare(struct gc573_capture *c)
 	cap_write(c, 0x30c, upper_32_bits(c->desc_address));
 	cap_write(c, 0x310, c->descriptors);
 	init_completion(&c->done);
+	for (i = 0; i < 4; i++)
+		init_completion(&c->ring_done[i]);
 	if (pci_alloc_irq_vectors(c->pdev, 1, 1, PCI_IRQ_MSI | PCI_IRQ_MSIX) < 0)
 		return -ENODEV;
 	c->vectors = 1;
@@ -326,6 +357,11 @@ static int cap_prepare(struct gc573_capture *c)
 		return -EBUSY;
 	c->irq_requested = 1;
 	return 0;
+}
+
+static dma_addr_t cap_slot_address(struct gc573_capture *c, unsigned int slot)
+{
+	return c->desc_address + (slot % DMA_BANKS) * DESC_BANK_ENTRIES * sizeof(*c->desc);
 }
 
 static int cap_enable(struct gc573_capture *c)
@@ -336,6 +372,10 @@ static int cap_enable(struct gc573_capture *c)
 		.ctx = c, .read = cap_led_read, .write = cap_led_write,
 		.sleep_ms = cap_led_sleep,
 	};
+	/* Recheck after a link retrain, before arming any large-frame DMA. */
+	c->pcie_bandwidth = pcie_bandwidth_available(c->pdev, NULL, NULL, NULL);
+	if (c->fps > gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth))
+		return -EOPNOTSUPP;
 
 	c->scaler_error = gc573_scaler_configure(&scaler_io, &c->scaler,
 		c->input_width, c->input_height, c->width, c->height);
@@ -343,11 +383,17 @@ static int cap_enable(struct gc573_capture *c)
 		return c->scaler_error;
 	c->video_control = 0x200 | (c->scaler.enabled ? 0x80 : 0);
 	c->next_frame_ns = 0;
+	c->pending = false;
+	c->ring_started = 0;
+	c->ring = (struct gc573_dma_ring){0};
+	WRITE_ONCE(c->ring_active, c->width == 2560 && c->fps > 60);
+	for (slot = 0; slot < 4; slot++)
+		reinit_completion(&c->ring_done[slot]);
 	cap_write(c, 0x1000, c->video_control);
-	/* Initialize all video slots to owned DMA memory; arm only one at a time. */
+	/* Every hardware slot owns a distinct frame and aligned descriptor list. */
 	for (slot = 0; slot < 4; slot++) {
-		cap_write(c, 0x308 + slot * 12, lower_32_bits(c->desc_address));
-		cap_write(c, 0x30c + slot * 12, upper_32_bits(c->desc_address));
+		cap_write(c, 0x308 + slot * 12, lower_32_bits(cap_slot_address(c, slot)));
+		cap_write(c, 0x30c + slot * 12, upper_32_bits(cap_slot_address(c, slot)));
 		cap_write(c, 0x310 + slot * 12, c->descriptors);
 	}
 	dma_wmb();
@@ -364,10 +410,10 @@ static int cap_enable(struct gc573_capture *c)
 	return 0;
 }
 
-static int cap_transfer(struct gc573_capture *c)
+static int cap_arm(struct gc573_capture *c)
 {
 	u32 source_period = cap_read(c, 0x1010);
-	u64 interval = div_u64(1000000000ULL, c->fps), now;
+	u64 now;
 
 	/* Select frames before arming DMA. The FPGA scaler still handles pixels;
 	 * unwanted source frames never traverse PCIe or consume a userspace buffer.
@@ -392,12 +438,80 @@ static int cap_transfer(struct gc573_capture *c)
 	c->complete = 0;
 	reinit_completion(&c->done);
 	c->slot = (cap_read(c, 0x300) & 7) % 4;
-	cap_write(c, 0x308 + c->slot * 12, lower_32_bits(c->desc_address));
-	cap_write(c, 0x30c + c->slot * 12, upper_32_bits(c->desc_address));
+	cap_write(c, 0x308 + c->slot * 12, lower_32_bits(cap_slot_address(c, c->slot)));
+	cap_write(c, 0x30c + c->slot * 12, upper_32_bits(cap_slot_address(c, c->slot)));
 	cap_write(c, 0x310 + c->slot * 12, c->descriptors);
 	dma_wmb();
 	cap_write(c, 0x304, 1 | BIT(c->slot + 1));
 	cap_write(c, 0x1000, c->video_control | 1);
+	c->pending = true;
+	return 0;
+}
+
+/* Four bounded requests; a completed bank is requeued only after its CPU copy.
+ * No userspace buffer or failed/unknown physical address is submitted to DMA.
+ */
+static int cap_ring_transfer(struct gc573_capture *c)
+{
+	unsigned long flags;
+	unsigned int slot;
+
+	if (!cap_input_matches(c))
+		return -ENOLINK;
+	if (READ_ONCE(c->stopping))
+		return -ECANCELED;
+	if (!c->ring_started) {
+		spin_lock_irqsave(&c->engine_lock, flags);
+		c->ring_consume = (cap_read(c, 0x300) & 7) % 4;
+		c->ring.next = c->ring_consume;
+		c->ring.pending = 15;
+		c->ring_started = 1;
+		dma_wmb();
+		cap_write(c, 0x304, 0x1f);
+		cap_write(c, 0x1000, c->video_control | 1);
+		spin_unlock_irqrestore(&c->engine_lock, flags);
+	}
+	slot = c->ring_consume;
+	c->polls = wait_for_completion_timeout(&c->ring_done[slot], msecs_to_jiffies(1500)) ? 1 : 0;
+	if (READ_ONCE(c->stopping))
+		return -ECANCELED;
+	if (!c->polls)
+		return cap_input_matches(c) ? -ETIMEDOUT : -ENOLINK;
+	dma_rmb();
+	c->completed_bank = slot;
+	c->ring_consume = (slot + 1) % 4;
+	c->complete = 1;
+	return 0;
+}
+
+static void cap_ring_refill(struct gc573_capture *c)
+{
+	unsigned long flags;
+	unsigned int slot = c->completed_bank;
+
+	if (READ_ONCE(c->stopping) || !cap_input_matches(c))
+		return;
+	spin_lock_irqsave(&c->engine_lock, flags);
+	reinit_completion(&c->ring_done[slot]);
+	c->ring.pending |= BIT(slot);
+	dma_wmb();
+	/* Preserve other queued slots and the DMA enable bit. */
+	cap_write(c, 0x304, cap_read(c, 0x304) | 1 | BIT(slot + 1));
+	spin_unlock_irqrestore(&c->engine_lock, flags);
+}
+
+static int cap_transfer(struct gc573_capture *c)
+{
+	u64 interval = div_u64(1000000000ULL, c->fps), now;
+	int ret;
+
+	if (c->ring_active)
+		return cap_ring_transfer(c);
+	if (!c->pending) {
+		ret = cap_arm(c);
+		if (ret)
+			return ret;
+	}
 	c->polls = wait_for_completion_timeout(&c->done, msecs_to_jiffies(1500)) ? 1 : 0;
 	if (!c->complete) {
 		c->irq = cap_read(c, 0x10);
@@ -407,6 +521,8 @@ static int cap_transfer(struct gc573_capture *c)
 			return -ENOLINK;
 		return -ETIMEDOUT;
 	}
+	c->pending = false;
+	c->completed_bank = c->slot % DMA_BANKS;
 	now = ktime_get_ns();
 	if (!c->next_frame_ns || now > c->next_frame_ns + interval)
 		c->next_frame_ns = now;
@@ -421,7 +537,7 @@ static void cap_copy(struct gc573_capture *c, void *dest)
 
 	for (off = 0; off < c->frame_bytes; off += size) {
 		size = min(CHUNK_BYTES, c->frame_bytes - off);
-		memcpy(dest + off, c->chunks[off / CHUNK_BYTES], size);
+		memcpy(dest + off, c->chunks[c->completed_bank * CHUNKS + off / CHUNK_BYTES], size);
 	}
 }
 
@@ -431,7 +547,7 @@ static int cap_guard(struct gc573_capture *c)
 
 	c->guard_ok = 1;
 	for (i = c->frame_bytes % CHUNK_BYTES; i && i < CHUNK_BYTES; i++)
-		if (((unsigned char *)c->chunks[c->frame_bytes / CHUNK_BYTES])[i] != 0xa5)
+		if (((unsigned char *)c->chunks[c->completed_bank * CHUNKS + c->frame_bytes / CHUNK_BYTES])[i] != 0xa5)
 			c->guard_ok = 0;
 	return c->guard_ok ? 0 : -EIO;
 }
@@ -532,6 +648,8 @@ static int cap_worker(void *opaque)
 			break;
 		}
 		cap_copy(c, vb2_plane_vaddr(&b->vb.vb2_buf, 0));
+		if (c->ring_active)
+			cap_ring_refill(c);
 		vb2_set_plane_payload(&b->vb.vb2_buf, 0, c->frame_bytes);
 		b->vb.vb2_buf.timestamp = ktime_get_ns();
 		b->vb.sequence = c->sequence++;
@@ -612,8 +730,12 @@ static void cap_stop_streaming(struct vb2_queue *q)
 {
 	struct gc573_capture *c = vb2_get_drv_priv(q);
 
+	unsigned int slot;
+
 	WRITE_ONCE(c->stopping, true);
 	complete_all(&c->done);
+	for (slot = 0; slot < 4; slot++)
+		complete_all(&c->ring_done[slot]);
 	if (c->thread) {
 		kthread_stop(c->thread);
 		c->thread = NULL;
@@ -668,9 +790,13 @@ static int cap_format(struct file *file, void *priv, struct v4l2_format *f)
 
 static int cap_try_format(struct file *file, void *priv, struct v4l2_format *f)
 {
+	struct gc573_capture *c = video_drvdata(file);
 	unsigned int width = f->fmt.pix.width <= 1280 && f->fmt.pix.height <= 720 ? 1280 : 1920;
 
-	cap_fill_format(f, width, width == 1280 ? 720 : 1080);
+	if (f->fmt.pix.width > 1920 && f->fmt.pix.height > 1080 &&
+	    gc573_capture_max_fps(2560, 1440, c->pcie_bandwidth))
+		width = 2560;
+	cap_fill_format(f, width, width == 2560 ? 1440 : width == 1280 ? 720 : 1080);
 	return 0;
 }
 
@@ -684,32 +810,47 @@ static int cap_set_format(struct file *file, void *priv, struct v4l2_format *f)
 	c->width = f->fmt.pix.width;
 	c->height = f->fmt.pix.height;
 	c->frame_bytes = gc573_mode_bytes(c->width, c->height);
+	c->fps = min(c->fps, gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth));
 	return 0;
 }
 
 static int cap_enum_size(struct file *file, void *priv, struct v4l2_frmsizeenum *f)
 {
-	if (f->index > 1 || f->pixel_format != V4L2_PIX_FMT_BGR24)
+	struct gc573_capture *c = video_drvdata(file);
+
+	if (f->index > 2 || f->pixel_format != V4L2_PIX_FMT_BGR24 ||
+	    (f->index == 2 && !gc573_capture_max_fps(2560, 1440, c->pcie_bandwidth)))
 		return -EINVAL;
 	f->type = V4L2_FRMSIZE_TYPE_DISCRETE;
-	f->discrete.width = f->index ? 1280 : 1920;
-	f->discrete.height = f->index ? 720 : 1080;
+	f->discrete.width = f->index == 2 ? 2560 : f->index ? 1280 : 1920;
+	f->discrete.height = f->index == 2 ? 1440 : f->index ? 720 : 1080;
 	return 0;
 }
 
 static int cap_enum_interval(struct file *file, void *priv, struct v4l2_frmivalenum *f)
 {
+	struct gc573_capture *c = video_drvdata(file);
+	unsigned int index = f->index;
 	static const struct v4l2_fract intervals[] = {
 		{ 1, 60 }, { 1001, 60000 }, { 1, 50 }, { 1, 30 }, { 1001, 30000 },
 		{ 1, 25 }, { 1, 24 }, { 1001, 24000 },
 	};
 
-	if (f->index >= ARRAY_SIZE(intervals) || (f->width == 1280 && f->index > 2) ||
-	    f->pixel_format != V4L2_PIX_FMT_BGR24 ||
-	    !gc573_mode_supported(f->width, f->height))
+	if (f->pixel_format != V4L2_PIX_FMT_BGR24 ||
+	    !gc573_capture_max_fps(f->width, f->height, c->pcie_bandwidth))
 		return -EINVAL;
 	f->type = V4L2_FRMIVAL_TYPE_DISCRETE;
-	f->discrete = intervals[f->index];
+	if (f->width == 2560) {
+		if (index < 2) {
+			f->discrete = index ? (struct v4l2_fract){1001, 120000} :
+				(struct v4l2_fract){1, 120};
+			return 0;
+		}
+		index -= 2;
+	}
+	if (index >= ARRAY_SIZE(intervals) || (f->width == 1280 && index > 2))
+		return -EINVAL;
+	f->discrete = intervals[index];
 	return 0;
 }
 
@@ -740,8 +881,10 @@ static int cap_set_parm(struct file *file, void *priv, struct v4l2_streamparm *p
 	if (vb2_is_busy(&c->queue))
 		return -EBUSY;
 	/* Quantize to a supported whole-fps cap; 59.94 must select 60, not 59. */
+	if (!gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth))
+		return -EOPNOTSUPP;
 	fps = f.numerator ? DIV_ROUND_CLOSEST_ULL((u64)f.denominator, f.numerator) : 60;
-	c->fps = clamp(fps, 24U, 60U);
+	c->fps = clamp(fps, 24U, gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth));
 	return cap_parm(file, priv, p);
 }
 
@@ -976,7 +1119,7 @@ void gc573_capture_destroy(struct gc573_capture *c)
 		for (i = 0; i < c->allocated; i++)
 			dma_free_coherent(&c->pdev->dev, CHUNK_BYTES, c->chunks[i], c->addresses[i]);
 		if (c->desc)
-			dma_free_coherent(&c->pdev->dev, DESCRIPTORS * sizeof(*c->desc), c->desc, c->desc_address);
+			dma_free_coherent(&c->pdev->dev, DMA_BANKS * DESC_BANK_ENTRIES * sizeof(*c->desc), c->desc, c->desc_address);
 	}
 	if (c->registered) {
 		v4l2_device_disconnect(&c->v4l2);
@@ -1021,6 +1164,9 @@ ssize_t gc573_capture_status(struct gc573_capture *c, char *buf, ssize_t used)
 		c->led_checks, c->led_observed_divider, c->led_observed_enabled);
 	used = gc573_audio_status(c->audio, buf, used);
 	used += sysfs_emit_at(buf, used, "audio_error=%d\n", c->audio_error);
+	used += sysfs_emit_at(buf, used,
+		"capture_pcie_mbps=%u\ncapture_native_1440p120=%u\n",
+		c->pcie_bandwidth, !!gc573_capture_max_fps(2560, 1440, c->pcie_bandwidth));
 	used += sysfs_emit_at(buf, used,
 		"capture_width=%u\ncapture_height=%u\ncapture_fps_limit=%u\n"
 		"capture_scaler_error=%d\ncapture_scaler_enabled=%u\ncapture_scaler_verified=%u\n"

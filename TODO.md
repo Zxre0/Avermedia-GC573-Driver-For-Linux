@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.45.3. Hardware validation and implementation are tracked
+Current driver: 0.46.0. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
@@ -92,6 +92,12 @@ separately; an unchecked item has not been demonstrated complete.
   The 0.45.1 final-link-check stop is addressed by the 0.45.2 continuation;
   0.45.3 also protects the first I2C status sample against missed busy intervals.
 - [x] Observe automatic 60→120 recovery in combined mode without a driver reload.
+- [x] Add native 2560×1440 BGR24 capture buffers, scaler bypass and 120 fps
+  V4L2 negotiation for Gen2 ×4 links, with upstream bandwidth checks.
+  Preview selects native capture automatically, with a 1080p60 fallback option.
+- [ ] Verify sustained native 1440p120 capture, full-frame image integrity,
+  audio and recovery through source-rate/resolution changes on the ×4 link.
+
 - [ ] Validate repeated combined-mode 60↔120 transitions, physical HDMI OUT audio,
   cold boot and source/display hotplug. Check latency independently of preview.
 - [x] Build and install a GTK4 desktop app with RGB controls, live measured

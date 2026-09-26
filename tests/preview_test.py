@@ -12,6 +12,23 @@ spec.loader.exec_module(preview)
 
 
 class PreviewTest(unittest.TestCase):
+    def test_measured_capture_rate_and_stream_counter_reset(self):
+        rate = preview.FrameRate()
+        self.assertIsNone(rate.update(500, 1))
+        self.assertIsNone(rate.update(560, 1.5))
+        self.assertEqual(rate.update(620, 2), 120)
+        self.assertEqual(rate.update(740, 4), 60)
+        self.assertIsNone(rate.update(0, 4.5))
+        self.assertEqual(rate.update(120, 5.5), 120)
+
+    def test_native_capture_requires_both_link_capacity_and_combined_mode(self):
+        state = dict(scaled_capture=1, capture_native_1440p120=1, input_width=2560)
+        self.assertEqual(preview.preview_format(state), (2560, 1440, 120))
+        self.assertEqual(preview.preview_format(state, False), (1920, 1080, 60))
+        self.assertEqual(preview.preview_format(dict(state, capture_native_1440p120=0)), (1920, 1080, 60))
+        self.assertEqual(preview.preview_format(dict(state, scaled_capture=0)), (1920, 1080, 60))
+        self.assertEqual(preview.preview_format(dict(state, input_width=1280)), (1280, 720, 60))
+
     def test_capture_guards_do_not_treat_registered_passthrough_as_video(self):
         good = dict(hdmi_ready=1, input_present=1, input_width=1920, input_height=1080)
         self.assertIsNone(preview.capture_problem(good))

@@ -31,10 +31,10 @@ MODULE_PARM_DESC(probe_receiver_video, "Read locked receiver timing, AVI and out
 
 static bool capture_video;
 module_param(capture_video, bool, 0400);
-MODULE_PARM_DESC(capture_video, "Expose native 720p/1080p RGB24 V4L2 capture");
+MODULE_PARM_DESC(capture_video, "Expose bounded RGB24 V4L2 capture, up to 1440p120 on Gen2 x4");
 static bool scaled_capture;
 module_param(scaled_capture, bool, 0400);
-MODULE_PARM_DESC(scaled_capture, "Experimental 1440p120 HDMI with separately scaled 1080p60 capture");
+MODULE_PARM_DESC(scaled_capture, "Experimental 1440p120 HDMI with native or downscaled capture");
 static bool passthrough_only;
 module_param(passthrough_only, bool, 0400);
 MODULE_PARM_DESC(passthrough_only, "Experimental display-matched SDR HDMI OUT; host capture stays stopped");
@@ -1892,4 +1892,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.45.3");
+MODULE_VERSION("0.46.0");

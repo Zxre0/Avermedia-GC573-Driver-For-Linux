@@ -367,3 +367,37 @@ This validates simultaneous 1440p120 passthrough and 1080p60 host capture on
 this PS5/display/Gen2×2 configuration, plus one automatic 60→120 transition.
 Repeated transitions in both directions, cold boot at 120 Hz, physical hotplug,
 output audio, channel order and content-relative A/V sync remain separate checks.
+
+
+## Native 1440p capture on Gen2 ×4 (0.46.0, 2026-09-25)
+
+The card now negotiates 5.0 GT/s ×4, and the kernel's upstream bandwidth helper
+reports 16000 Mb/s. V4L2 exposes 2560×1440 BGR24, a 7680-byte stride,
+11,059,200-byte frames, and 120/119.88 fps intervals. Setting 120 fps succeeds;
+changing back to 1080p clamps it to 60. A queue opened without HDMI did not arm
+DMA. The existing boot service resumed combined mode when the PS5 powered up.
+
+The first native implementation delivered approximately 60 fps during a live
+119.889 Hz input. Moving the CPU copy before the next wait did not fix this.
+The final implementation therefore uses all four hardware slots, with separate
+owned frame memory and a 64 KiB-aligned descriptor list per slot. A packed
+unaligned second list stalled; aligned lists passed subsequent tests. The
+completed slot is never rearmed until its frame has been copied. Unit tests
+cover all ring starts, coalesced/duplicate IRQs, wrap, starvation and invalid or
+unqueued slots.
+
+With the final four-slot queue, 600 native frames streamed at 59.94 fps from a
+59.944 Hz source, with zero capture errors and intact DMA guards. A settled
+11,059,200-byte frame was inspected at 2560×1440 and showed the complete PS5
+home screen with correct geometry/colors. The first capture just after reopening
+contained the receiver's temporary blank pattern; the settled capture did not.
+Native preview and audio run concurrently; nonzero PCM was observed before the
+source became silent. Native reopening and 120-frame 1080p/720p downscaling
+regressions passed. RGB and WirePlumber were restored. Private captures and
+desktop screenshots are excluded from the repository.
+
+All C sanitizer tests, 49 Python tests and shell checks passed. W=1 builds passed
+for 7.2.6-1-cachyos, cached 7.2.3-1-cachyos and 6.18.52-1-cachyos-lts. Only 7.2.6
+was loaded. The final queue has not yet been tested with sustained 120 Hz input;
+native 1440p120 throughput and transitions remain unverified. The earlier
+1440p120 passthrough plus 1080p60 capture result is a separate test.

@@ -61,7 +61,8 @@ slot. Completion comes from interrupt-status `0x10` bit 1 and slot status
 `0x1008/0x100c`; `0x1010` is the frame period in 100 MHz clock ticks. Video reset
 uses `0x0c` and completion bit 3. Global `0x08` bit 1 is **audio DMA**.
 
-The driver exports BGR24 with bounded 1920×1080 and 1280×720 geometry.
+The driver exports BGR24 with bounded 1920×1080 and 1280×720 geometry;
+0.46.0 also exposes 2560×1440 on a suitable PCIe link (see native capture below).
 Descriptor count, queue payload and clip dimensions follow the selected mode.
 1080p60 is hardware verified; additional modes still need source testing.
 Frame intervals report source timing, and the app reads the measured input rate.
@@ -237,3 +238,28 @@ busy timeouts and write errors retain their existing failure handling; no
 transaction is retried or accepted merely because a timeout ended with DONE.
 Runtime status exposes the last link-read address, register, prepared/start/final
 status and completion_armed so future failures need no private memory inspection.
+
+
+### Native 1440p capture buffers and link gate (0.46.0)
+
+The combined receiver path already supplies dual-pixel DDR 2560×1440 at up to
+120 Hz. Native capture now bypasses the scaler at matching input/output size,
+using 11,059,200-byte BGR24 frames: 2,700 descriptors of 4,096 bytes each in
+169 coherent 64 KiB chunks per bank. Four banks each own one hardware slot and a separate 64 KiB-aligned
+descriptor list; the last 16 KiB of each data bank remains a checked guard
+region. Native high-rate capture queues all four slots and only rearms each
+bank after its completed frame has been copied. IRQ handling tracks sequential
+slot completions, including coalesced interrupts, and ignores invalid or
+already-completed slots. A slow consumer exhausts the queued requests rather
+than allowing DMA to overwrite an unread frame. Lower-rate output keeps its
+existing single-transfer pacing.
+DMA addresses still come only from the DMA API. Legacy receiver initialization
+continues to accept only its original 720p/1080p single-TTL modes.
+
+The new output geometry requires at least 16000 Mb/s from the kernel's
+[pcie_bandwidth_available](https://www.kernel.org/doc/html/next/driver-api/pci/pci.html)
+helper, which accounts for the narrowest upstream link and line encoding.
+Capacity is checked at registration and again before enabling DMA. Narrower
+connections retain the old output modes. Native frame intervals include 120
+and 120000/1001; changing back to 1080p clamps the capture limit to 60.
+A missing/smaller input cannot arm a larger output transfer.

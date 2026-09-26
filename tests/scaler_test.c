@@ -73,6 +73,8 @@ int main(void)
 	check(2560, 1440, 1920, 1080);
 	check(2560, 1440, 1280, 720);
 	writes = 0;
+	assert(gc573_scaler_configure(&io, &r, 2560, 1440, 2560, 1440) == 0);
+	assert(r.complete && !r.enabled && !writes);
 	assert(gc573_scaler_configure(&io, &r, 3840, 2160, 1920, 1080) == -EINVAL);
 	assert(gc573_scaler_configure(&io, &r, 1280, 720, 1920, 1080) == -EINVAL);
 	assert(writes == 0);

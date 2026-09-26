@@ -36,7 +36,8 @@ int gc573_scaler_configure(const struct gc573_block_io *io, struct gc573_scaler_
 		return -EINVAL;
 	if (!((iw == 1920 && ih == 1080) || (iw == 1280 && ih == 720) ||
 	      (iw == 2560 && ih == 1440)) ||
-	    !((ow == 1920 && oh == 1080) || (ow == 1280 && oh == 720)) || ow > iw)
+	    !((ow == 1920 && oh == 1080) || (ow == 1280 && oh == 720) ||
+	      (ow == 2560 && oh == 1440)) || ow > iw)
 		return -EINVAL;
 	/* Never reconfigure a live capture engine. */
 	if (io->read(io->ctx, 0x1000) & 1)

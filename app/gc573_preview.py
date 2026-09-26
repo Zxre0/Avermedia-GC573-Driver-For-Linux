@@ -28,6 +28,24 @@ class LatestFrame:
             return frame
 
 
+class FrameRate:
+    def __init__(self):
+        self.previous = None
+        self.value = None
+
+    def update(self, count, now):
+        if self.previous is not None:
+            old_count, old_time = self.previous
+            if count < old_count:
+                self.value = None
+            elif now - old_time < 1:
+                return self.value
+            else:
+                self.value = (count - old_count) / (now - old_time)
+        self.previous = count, now
+        return self.value
+
+
 def capture_problem(values):
     if values.get('passthrough_only'):
         return 'Passthrough-only mode. Switch to capture mode to preview or share your PS5.'
@@ -43,6 +61,13 @@ def capture_problem(values):
     if (values.get('input_width'), values.get('input_height')) not in allowed:
         return 'Unsupported input. Use 1080p SDR, or 1440p SDR in scaled capture mode.'
     return None
+
+
+def preview_format(values, prefer_native=True):
+    if (prefer_native and values.get('scaled_capture') and
+            values.get('capture_native_1440p120') and values.get('input_width') == 2560):
+        return 2560, 1440, 120
+    return (1280, 720, 60) if values.get('input_width') == 1280 else (1920, 1080, 60)
 
 
 def audio_device(status, root=Path('/sys/class/sound')):
@@ -72,6 +97,7 @@ def run_gui(args):
             super().__init__(application_id='io.github.gc573.Preview')
             self.video = self.audio = None
             self.frames = LatestFrame()
+            self.capture_rate = FrameRate()
             self.rendered = 0
             self.last_frame = 0
             self.want_running = True
@@ -259,16 +285,17 @@ def run_gui(args):
             self.audio_failed = False
             self.audio_message = ''
 
-        def start_video(self, device, width, height):
+        def start_video(self, device, width, height, fps):
+            self.capture_rate = FrameRate()
             self.video = Gst.parse_launch(
                 f'v4l2src name=camera io-mode=mmap do-timestamp=true ! '
-                f'video/x-raw,format=BGR,width={width},height={height} ! '
+                f'video/x-raw,format=BGR,width={width},height={height},framerate={fps}/1 ! '
                 'appsink name=frames emit-signals=true max-buffers=1 drop=true '
                 'sync=false enable-last-sample=false')
             self.video.get_by_name('camera').set_property('device', str(device))
             self.video.get_by_name('frames').connect('new-sample', self.sample)
             self.watch(self.video, 'video')
-            self.active_device, self.active_size = device, (width, height)
+            self.active_device, self.active_size = device, (width, height, fps)
             self.last_frame = time.monotonic()
             if self.video.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
                 self.stop()
@@ -309,9 +336,7 @@ def run_gui(args):
                     self.show_message(problem)
                     self.status.set_text('No supported capture signal')
                     return True
-                size = (1920, 1080) if values.get('scaled_capture') else (values['input_width'], values['input_height'])
-                if values.get('input_width') == 1280:
-                    size = (1280, 720)
+                size = preview_format(values, not args.limit_1080p)
                 if self.video and (self.active_device != device or self.active_size != size):
                     self.stop()
                 if not self.video:
@@ -328,8 +353,10 @@ def run_gui(args):
                 sound = self.audio_message or ('Sound on' if self.audio else 'Sound off')
                 input_fps = values.get('input_fps_milli', 0) / 1000
                 capture_fps = min(input_fps, values.get('capture_fps_limit', 60))
+                measured = self.capture_rate.update(values.get('capture_frames', 0), time.monotonic())
+                cadence = f'{measured:.1f} fps captured' if measured is not None else f'up to {capture_fps:.2f} fps'
                 source = f"HDMI {values['input_width']} × {values['input_height']} · {input_fps:.2f} Hz"
-                self.status.set_text(f'{source}  →  Preview {size[0]} × {size[1]} · up to {capture_fps:.2f} fps · {sound}')
+                self.status.set_text(f'{source}  →  Preview {size[0]} × {size[1]} · {cadence} · {sound}')
             except (OSError, RuntimeError, GLib.Error) as exc:
                 self.stop()
                 self.want_running = False
@@ -361,6 +388,7 @@ def run_gui(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mute', action='store_true', help='Start without local console audio')
+    parser.add_argument('--limit-1080p', action='store_true', help='Use up to 1080p60 even when native 1440p120 is available')
     parser.add_argument('--smoke-seconds', type=int, default=0, help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:

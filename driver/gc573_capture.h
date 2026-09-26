@@ -2,7 +2,8 @@
 #ifndef GC573_CAPTURE_H
 #define GC573_CAPTURE_H
 #include <linux/pci.h>
-#define GC573_FRAME_BYTES (1920U * 1080U * 3U)
+#include "gc573_modes.h"
+#define GC573_FRAME_BYTES GC573_MAX_FRAME_BYTES
 struct gc573_capture;
 struct gc573_block_io;
 struct gc573_capture *gc573_capture_create(struct pci_dev *pdev, void __iomem *bar, bool stream, const struct gc573_block_io *io);

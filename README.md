@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.45.3 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.46.0 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -48,7 +48,8 @@ Those are **card specifications**, not features already working in this driver.
 | --- | --- |
 | 1080p60 video | Hardware verified in OBS; RGB 8-bit HDMI input → V4L2 BGR24 |
 | 720p and lower-rate 1080p | Bounded support implemented; additional source modes need hardware validation |
-| Full-rate high-resolution capture / HDR | Not implemented; host output remains at most 1080p60 SDR |
+| Native 1440p120 capture | Implemented in 0.46.0 for PCIe Gen2 ×4; live full-rate verification pending (see below) |
+| 4K capture / 1440p144 capture / HDR | Not implemented |
 | Hardware scaling | 1440p119.89 input → 1080p60 capture, 1440p59.94 → 1080p59.94, and 1080p → 720p verified |
 | 1440p120 HDMI OUT + 1080p60 capture | Verified on a PS5 in 0.45.3: 119.89 Hz input, 60 fps capture, nonzero audio; user confirms 120 Hz output |
 | High-rate HDMI OUT | Experimental RGB8 SDR mode: display-matched timings capped at 1080p240, 1440p144 and 4K60; host capture disabled; see limitations below |
@@ -64,11 +65,11 @@ The driver targets PCI `1461:0054`, subsystem `1461:5730`, FPGA `20201015`, boar
 `57300102`. It rejects unknown capture revisions. HDCP-protected content is not
 supported.
 
-The card is specified for PCIe Gen 2 ×4. Our test PC currently negotiates **Gen 2
-×2**, with an immediate upstream port limited to ×2. This matters for high-rate
-capture: uncompressed RGB24 at 1080p240 or 4K60 is about **1.49 GB/s**, above that
-link's theoretical payload capacity before PCIe transaction overhead. Lower-bandwidth
-formats and/or a suitable ×4 connection are needed for those capture modes.
+The card is specified for PCIe Gen 2 ×4. The test PC now negotiates **Gen 2 ×4**;
+the earlier 1080p60 capture tests used ×2. Native 1440p120 BGR24 transfers about
+**1.33 GB/s** of video payload. The driver checks the narrowest upstream PCIe
+link before offering the new format; a Gen2 ×2 connection keeps the 1080p60
+capture limit. A wider connection alone does not enable 4K or HDR capture.
 HDMI passthrough latency requires separate testing; PCIe bandwidth is not a measurement
 of its latency.
 
@@ -109,6 +110,39 @@ An actual Discord call has not been tested by this project.
 The preview works in **capture** and **scaled** modes with HDCP disabled. It
 shows HDMI input resolution/rate separately from preview resolution and its
 capture frame-rate limit. Passthrough-only mode does not provide host capture.
+
+## Experimental native 1440p120 capture (0.46.0)
+
+On PCIe Gen2 ×4, the driver now exposes **2560×1440 BGR24 at up to 120 fps**
+to OBS and other V4L2 applications. It uses the existing combined HDMI profile
+(`scaled` in the startup settings). Selecting native 1440p bypasses the FPGA
+scaler; selecting 1080p or 720p still enables downscaling as before. HDMI OUT
+keeps the source timing in either case.
+
+Set the combined profile once, then open your capture application:
+
+```sh
+python3 tools/set-mode.py scaled
+```
+
+In OBS, choose the GC573 Video Capture Device (V4L2), **2560×1440**, **BGR3/BGR24**,
+and **120 fps** (or 119.88 fps). OBS's project/output frame rate is a separate
+setting. For Preview, launch `gc573-preview`: it automatically selects native
+1440p120 when the input and PCIe connection support it. To keep the lighter
+1080p60 preview for Discord, use `gc573-preview --limit-1080p`.
+
+The source must actually output 1440p120 RGB8 SDR with HDCP disabled. A 60 Hz
+source produces 60 captured frames per second even when the capture limit is
+120. A monitor refresh rate or a V4L2 format listing alone does not verify capture
+throughput. Native 1440p60 frame delivery, a full-resolution image, audio, reopening and
+1080p/720p fallback are verified on the test PC. The final four-slot DMA queue
+still needs a sustained native 120 fps test. Earlier single-transfer tests
+delivered only 60 fps with a 120 Hz input. Preview now displays the measured
+capture rate separately from incoming HDMI timing.
+
+Capture memory now holds 11,059,200 bytes per frame. Larger formats, 144 Hz
+capture, YUV output and HDR remain unsupported. The previously verified
+1440p120 passthrough **with 1080p60 capture** is documented separately below.
 
 ## Experimental 1440p passthrough with 1080p capture (0.45.3)
 
@@ -162,7 +196,7 @@ set **120 Hz Output** to **Automatic**. A compatible game must request 120 Hz;
 the home screen may still run at 60 Hz. Use stereo Linear PCM audio. The driver
 reads the connected monitor's EDID and offers only supported RGB8 SDR modes up
 to 1440p120. It does not force the PS5 to change a manually selected resolution.
-For OBS, choose 1920×1080, BGR3/BGR24 and 60 fps. Play on the HDMI OUT monitor;
+For downscaled OBS capture, choose 1920×1080, BGR3/BGR24 and 60 fps. Play on the HDMI OUT monitor;
 share the preview/OBS window on Discord.
 
 The monitor used for development advertises 2560×1440 at 59.95 and 119.998 Hz in
