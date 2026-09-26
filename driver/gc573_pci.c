@@ -1474,8 +1474,10 @@ static ssize_t bringup_status_show(struct device *dev,
 			READ_ONCE(p->last.status), READ_ONCE(p->video.last_reg),
 			READ_ONCE(p->video.expected), READ_ONCE(p->video.observed));
 		used += sysfs_emit_at(buf, used,
-			"external_output_waiting=%u\nexternal_output_tx_status=0x%02x\n",
-			p->video.waiting_link, p->video.tx_status);
+			"external_output_waiting=%u\nexternal_output_tx_status=0x%02x\n"
+			"external_link_wait_polls=%u\nexternal_link_restarts=%u\n",
+			p->video.waiting_link, p->video.tx_status,
+			p->video.link_wait_polls, p->video.link_restarts);
 		used += sysfs_emit_at(buf, used,
 			"external_link_address=0x%x\nexternal_link_reg=0x%x\n"
 			"external_link_prepared=0x%x\nexternal_link_start=0x%x\n"
@@ -1507,8 +1509,10 @@ static ssize_t bringup_status_show(struct device *dev,
 
 	if (scaled_capture)
 		used += sysfs_emit_at(buf, used,
-			"combined_output_waiting=%u\ncombined_output_tx_status=0x%02x\n",
-			card->hdmi.video.waiting_link, card->hdmi.video.tx_status);
+			"combined_output_waiting=%u\ncombined_output_tx_status=0x%02x\n"
+			"combined_link_wait_polls=%u\ncombined_link_restarts=%u\n",
+			card->hdmi.video.waiting_link, card->hdmi.video.tx_status,
+			card->hdmi.video.link_wait_polls, card->hdmi.video.link_restarts);
 
 	if (probe_sink) {
 		const struct gc573_sink_result *r = &card->sink;
@@ -1892,4 +1896,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.46.1");
+MODULE_VERSION("0.46.2");

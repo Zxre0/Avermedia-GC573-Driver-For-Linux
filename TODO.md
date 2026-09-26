@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.46.1. Hardware validation and implementation are tracked
+Current driver: 0.46.2. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
@@ -98,7 +98,10 @@ separately; an unchecked item has not been demonstrated complete.
 - [x] Find and fix the FPGA timer’s reset-time 60 fps cap. A five-second live
   119.89 Hz input test reached approximately 119.8 fps with zero capture errors
   and intact DMA guards. The native timer is also bounded by the source rate.
-- [ ] Verify sustained native 1440p120 capture, full-frame image integrity,
+- [x] Recover a stalled internal HDMI transmitter with one port-local setup;
+  validate 30 seconds of native 1440p120 delivery at 119.87 fps and inspect Preview.
+  Add a bounded automatic recovery after six same-rate lock observations.
+- [ ] Verify extended native 1440p120 capture, full-frame motion/uniqueness,
   audio and recovery through source-rate/resolution changes on the ×4 link.
 
 - [ ] Validate repeated combined-mode 60↔120 transitions, physical HDMI OUT audio,

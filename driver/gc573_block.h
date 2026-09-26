@@ -174,6 +174,7 @@ struct gc573_splitter_video_result {
 	unsigned char irq_before[6];
 	unsigned int bank, bank_verified, avi_color, rx_cf, rx13, format_valid;
 	unsigned int tx_status, output_enabled, waiting_link;
+	unsigned int link_wait_polls, link_restarts;
 	int prerequisite_error;
 	struct gc573_block_result last;
 };

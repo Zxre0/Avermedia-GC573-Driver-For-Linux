@@ -273,6 +273,48 @@ int main(void)
 	assert(!gc573_splitter_video_resume(&io, &identity, &link, &video, 1, 0));
 	assert(video.complete && !video.waiting_link);
 	for (i = n; i < f.writes; i++) assert(f.trace[i][0] != 0x36);
+	/* A persistently unlocked, completed setup gets exactly one restart.
+	 * Exercise both ports, the six-sample delay, and every restart failure.
+	 */
+	for (unsigned int port = 1; port <= 2; port++) {
+		struct gc573_splitter_video_result pending;
+		struct fake before;
+		unsigned int j, count;
+
+		f = pt_setup();
+		memcpy(f.tx_ports[1], f.tx_ports[2], 256);
+		f.selected_port = port;
+		f.tx_ports[port][3] = 0x97;
+		assert((port == 1 ? gc573_splitter_video_internal(&io, &identity, &link, &video) :
+			gc573_splitter_video_external(&io, &identity, &link, &video, &caps)) == -ENOLINK);
+		f.lock_on_tx_reset = 1;
+		for (j = 0; j < 5; j++) {
+			assert(gc573_splitter_video_resume(&io, &identity, &link, &video, port, &caps) == -ENOLINK);
+			assert(!video.link_restarts && video.link_wait_polls == j + 1);
+		}
+		before = f; pending = video;
+		assert(!gc573_splitter_video_resume(&io, &identity, &link, &video, port, &caps));
+		assert(video.link_restarts == 1 && video.complete && !video.waiting_link);
+		for (j = before.writes; j < f.writes; j++)
+			assert(f.trace[j][0] != 0x34 + (port == 1 ? 2 : 1));
+		count = f.transactions - before.transactions;
+		for (j = 1; j <= count; j++) {
+			f = before; video = pending;
+			f.fail_at = f.transactions + j;
+			assert(gc573_splitter_video_resume(&io, &identity, &link, &video, port, &caps) == -ETIMEDOUT);
+			assert(f.transactions == f.fail_at && !video.waiting_link && !video.complete);
+		}
+		f = before; video = pending; f.lock_on_tx_reset = 0;
+		assert(gc573_splitter_video_resume(&io, &identity, &link, &video, port, &caps) == -ENOLINK);
+		assert(video.link_restarts == 1 && video.waiting_link);
+		n = f.writes;
+		for (j = 0; j < 8; j++)
+			assert(gc573_splitter_video_resume(&io, &identity, &link, &video, port, &caps) == -ENOLINK);
+		assert(video.link_restarts == 1 && video.link_wait_polls == 6);
+		for (j = n; j < f.writes; j++)
+			assert(f.trace[j][1] != 1 && f.trace[j][1] != 0xc0);
+	}
+	puts("PASS: one bounded TX1/TX2 stalled-lock restart, settling delay and every transport failure");
 	puts("PASS: late HDMI lock continuation, 120->60 clock revalidation, all resume transport failures");
 	puts("PASS: transient format waits recover; unsupported input never resets TX; transport failures remain stopped");
 	puts("PASS: HDMI 2.0 SCDC, 498/595 MHz TX2 output, low-rate restore, EDID "

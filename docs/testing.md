@@ -443,3 +443,35 @@ on the console is needed before another actual 120 Hz run. Preview and
 WirePlumber were restored. C sanitizer tests, 49 Python tests, shell checks,
 and W=1 builds for 7.2.6-1-cachyos, 7.2.3-1-cachyos and
 6.18.52-1-cachyos-lts passed. Only 7.2.6 was loaded.
+
+
+## Recovering the PS5 120 Hz transition (0.46.2, 2026-09-25)
+
+The user reported no signal with the PS5 requesting 1440p120. The upstream
+splitter receiver remained locked, but both transmitters were at 0x97 and the
+FPGA input geometry was zero. Completed SCDC reads showed TX1 sink config=3,
+scrambling=1 and lock=0x0f. The worker had remained in its final-link wait.
+
+A private, bounded diagnostic used the exact loaded 0.46.1 I/O callbacks under
+the driver's control mutex to replay the established TX1 setup once. It did not
+reload the driver, reset FPGA DMA, or change source HPD/EDID. TX1 changed to
+0x9f and the ordinary worker recovered FPGA input at 2560x1440, 119.889 Hz.
+Preview was reopened: over 30 seconds, native frames and DMA completions both
+averaged 119.8658 fps, timer=1238643, capture_error=0, and capture_guard_ok=1.
+The visible preview showed the PS5 game menu. Audio DMA ran but reported zero
+nonzero bytes, so this test does not establish audible 120 Hz audio or unique
+frames during fast motion.
+
+The external display subsequently reported TX2=0x95 (RxSense absent); TX2's
+setup preflight refused writes. HDMI OUT recovery is therefore not established
+by this result. Internal capture stays available independently of the monitor.
+
+The 0.46.2 source adds the same port-local recovery after six successful,
+same-rate pending-lock observations, at most once per setup. Tests cover both
+ports, late success without a reset, all transfer failures during recovery,
+changed-rate invalidation, and a second stalled attempt without repeated resets.
+The live session retains the recovered 0.46.1 module to avoid another PS5
+HDMI renegotiation; the built 0.46.2 module is selected on the next driver load.
+
+All C sanitizer tests, 49 Python tests, shell checks and W=1 builds for
+7.2.6-1-cachyos, 7.2.3-1-cachyos and 6.18.52-1-cachyos-lts passed.

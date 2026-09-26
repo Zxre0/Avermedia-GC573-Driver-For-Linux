@@ -512,6 +512,19 @@ int gc573_splitter_video_resume(const struct gc573_block_io *io,
 		return ret;
 	r->phase = 8;
 	ret = video_finish_output(&c);
+	/* A completed 60->120 setup can remain at TX status 0x97 indefinitely.
+	 * Six successful, same-rate observations give late lock time to settle.
+	 * Then repeat the validated port-local setup ONCE; no HPD/EDID reset and
+	 * no retry of an incomplete programming transaction. A fresh format
+	 * starts a new setup; a second stalled attempt stays visible as a wait.
+	 */
+	if (gc573_splitter_video_link_wait(r, ret) && !r->link_restarts) {
+		if (++r->link_wait_polls >= 6) {
+			ret = video_clock(io, identity, link, r, 2, port, c.sink);
+			r->link_restarts = 1;
+			r->link_wait_polls = 6;
+		}
+	}
 	if (!ret)
 		r->complete = 1;
 	return ret;

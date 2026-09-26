@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.46.1 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.46.2 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -48,7 +48,7 @@ Those are **card specifications**, not features already working in this driver.
 | --- | --- |
 | 1080p60 video | Hardware verified in OBS; RGB 8-bit HDMI input → V4L2 BGR24 |
 | 720p and lower-rate 1080p | Bounded support implemented; additional source modes need hardware validation |
-| Native 1440p120 capture | 0.46.1 fixes the FPGA’s 60 fps timer cap; a live 119.89 Hz test delivered about 119.8 fps on Gen2 ×4; longer validation remains pending |
+| Native 1440p120 capture | 0.46.1 fixes the FPGA’s 60 fps timer cap; a 30-second 119.89 Hz test delivered 119.87 fps on Gen2 ×4; transition/motion validation remains pending |
 | 4K capture / 1440p144 capture / HDR | Not implemented |
 | Hardware scaling | 1440p119.89 input → 1080p60 capture, 1440p59.94 → 1080p59.94, and 1080p → 720p verified |
 | 1440p120 HDMI OUT + 1080p60 capture | Verified on a PS5 in 0.45.3: 119.89 Hz input, 60 fps capture, nonzero audio; user confirms 120 Hz output |
@@ -139,10 +139,14 @@ throughput. Native 1440p60 frame delivery, a full-resolution image, audio, reope
 1080p/720p fallback are verified on the test PC. Version 0.46.0 still delivered
 60 fps from a 120 Hz input because the FPGA capture timer retained its reset
 default. Version 0.46.1 programs that timer on stream start and recovery, bounded
-by the source rate. A five-second live timer test delivered about 119.8 native
-frames and DMA completions per second, with intact guards and no capture errors.
+by the source rate. A 30-second recovered 1440p120 test delivered 119.87 native frames and DMA
+completions per second, with intact guards and no capture errors.
 Longer 120 fps runs and motion/frame-uniqueness checks remain pending. Preview
 displays the measured capture rate separately from incoming HDMI timing.
+Version 0.46.2 adds one automatic transmitter recovery attempt when an otherwise
+completed HDMI setup remains unlocked through six same-rate checks. This fixes
+a reproduced 60-to-120 Hz transition stall without replacing EDID or pulsing
+source HPD. It does not retry failed register transfers indefinitely.
 
 Capture memory now holds 11,059,200 bytes per frame. Larger formats, 144 Hz
 capture, YUV output and HDR remain unsupported. The previously verified

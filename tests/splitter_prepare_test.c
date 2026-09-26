@@ -15,6 +15,7 @@ struct fake {
 	unsigned int edid_mode, edid_enable_mode, activate_mode, c1_status;
 	unsigned int passthrough_mode;
 	unsigned int video_mode, video_raw, video_setup, selected_port;
+	unsigned int lock_on_tx_reset;
 	unsigned char edid[256];
 	unsigned char tx_ports[4][256];
 	unsigned char common[256], rx[4][256];
@@ -214,6 +215,8 @@ static int wait_io(struct fake *f, unsigned int *status, unsigned int *armed,
 			unsigned int port = (f->regs[GC573_BLOCK_ADDRESS / 4] - 0x68) / 2;
 
 			f->trace[f->writes - 1][0] = 0x34 + port;
+			if (f->lock_on_tx_reset && reg == 1 && value == 0x24)
+				f->tx_ports[port][3] |= 8;
 			f->tx_ports[port][reg] = reg == 3 ? f->tx_ports[port][reg] & ~value :
 				reg == 1 ? value & ~0x27U :
 				reg == 0x94 ? value & ~1U : reg == 0x35 ? value & ~0x10U : value;

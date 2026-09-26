@@ -270,3 +270,21 @@ Capacity is checked at registration and again before enabling DMA. Narrower
 connections retain the old output modes. Native frame intervals include 120
 and 120000/1001; changing back to 1080p clamps the capture limit to 60.
 A missing/smaller input cannot arm a larger output transfer.
+
+
+### Bounded recovery of a stalled transmitter (0.46.2)
+
+A 60-to-120 Hz transition left TX1 and TX2 at status 0x97 after successful
+analog/SCDC configuration. TX1's sink reported TMDS_CONFIG=3, scrambling=1 and
+channel lock=0x0f, but FPGA input stayed absent while the worker only waited.
+One replay of the existing, validated TX1 setup changed status to 0x9f without
+source HPD or EDID changes; receiver and FPGA input then recovered at 119.89 Hz.
+
+Pending output setup now permits one port-local restart after six completed,
+same-rate lock observations. Every observation still remeasures the clock and
+validates format. Missing sink/source preconditions do not count. A >10% rate
+change or a crossing of 340 MHz still abandons the pending setup. An incomplete
+programming/readback transaction stops; it is never treated as a late-lock wait.
+If the restarted setup also waits, subsequent polls only observe it until a new
+source configuration. `combined_link_wait_polls`/`combined_link_restarts` and
+`external_link_wait_polls`/`external_link_restarts` expose this state.
