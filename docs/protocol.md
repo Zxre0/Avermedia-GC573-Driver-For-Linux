@@ -288,3 +288,13 @@ programming/readback transaction stops; it is never treated as a late-lock wait.
 If the restarted setup also waits, subsequent polls only observe it until a new
 source configuration. `combined_link_wait_polls`/`combined_link_restarts` and
 `external_link_wait_polls`/`external_link_restarts` expose this state.
+
+
+### Receiver startup after reboot (0.46.3)
+
+The failed 2026-09-27 boot left GPIO at 0x1f850 and block status at 1, with no
+IRQ owner or pending IRQ. Receiver identification rejected this state before any
+MMIO write, so startup never reached video/audio registration. Its preflight
+now accepts GC573_BLOCK_WRITE_DONE, consistent with the shared block-read and
+splitter-startup paths. GPIO ordering/readbacks, IRQ checks and fresh read
+completion requirements are unchanged. This is not a generic busy/error retry.

@@ -663,9 +663,14 @@ int gc573_receiver_identify(const struct gc573_block_io *io,
 		return -ENODEV;
 	receiver->gpio_before = io->read(io->ctx, GC573_GPIO);
 	receiver->status_before = io->read(io->ctx, GC573_BLOCK_STATUS);
+	/* Reboot may leave WRITE_DONE latched, just as READ_DONE can persist.
+	 * Both are accepted by the following fresh identification transaction.
+	 */
 	if (io->read(io->ctx, GC573_IRQ_ENABLE) ||
 	    io->read(io->ctx, GC573_IRQ_STATUS) ||
-	    (receiver->status_before != 0 && receiver->status_before != 4 &&
+	    (receiver->status_before != 0 &&
+	     receiver->status_before != GC573_BLOCK_WRITE_DONE &&
+	     receiver->status_before != GC573_BLOCK_READ_DONE &&
 	     receiver->status_before != 8))
 		return -EBUSY;
 	/* Match the observed board state, including GPIO 4/6 already high. */

@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.46.2 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.46.3 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -507,6 +507,17 @@ Check startup with:
 systemctl is-enabled gc573-native-boot.service
 systemctl status gc573-native-boot.service --no-pager
 journalctl -u gc573-native-boot.service -b --no-pager
+```
+
+Version 0.46.3 fixes a reboot failure where receiver startup rejected the
+I²C controller's latched write-complete status (`receiver_status_before=0x00000001`,
+`block_error=-16`, zero GPIO steps). This status is now accepted alongside the
+existing completed-read state; active IRQs and unknown states still stop startup.
+After updating an existing installation, rebuild and restart its boot service:
+
+```sh
+./tools/build.sh
+sudo systemctl restart gc573-native-boot.service
 ```
 
 `active (exited)` is normal: device registration has finished and the kernel

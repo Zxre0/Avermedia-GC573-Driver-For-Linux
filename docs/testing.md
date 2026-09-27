@@ -475,3 +475,28 @@ HDMI renegotiation; the built 0.46.2 module is selected on the next driver load.
 
 All C sanitizer tests, 49 Python tests, shell checks and W=1 builds for
 7.2.6-1-cachyos, 7.2.3-1-cachyos and 6.18.52-1-cachyos-lts passed.
+
+
+## Reboot stopped before device registration (0.46.3, 2026-09-27)
+
+On CachyOS 7.2.6-1-cachyos, the enabled system boot service failed at receiver
+identification with block_error=-16. The saved boot log and still-loaded
+probe both reported receiver_status_before=1, GPIO=0x1f850, zero GPIO steps,
+and zero MMIO writes. The earlier board snapshot had no enabled or pending
+IRQs. Status 1 is WRITE_DONE, already accepted by ordinary block reads and
+splitter startup, but omitted from the receiver-startup preflight.
+
+The corrected module accepted the same retained status during service restart,
+completed receiver startup and registered V4L2 video, ALSA audio and RGB. The
+service then entered the saved scaled mode and reached active (exited), exit 0.
+A second service restart preserved the existing scaled device. Version 0.46.3
+is loaded, and the boot service remains enabled. At verification, the scaled
+worker was waiting for the HDMI OUT display/EDID (external_phase=0,
+external_waiting=1, external_error=0); this is not a fresh capture test.
+
+Regression tests exercise receiver startup from WRITE_DONE, require a fresh
+read completion rather than accepting the stale write result, and reject IRQ
+ownership/pending IRQs before any write. All C sanitizer tests, 49 Python
+tests, shell checks and W=1 builds for 7.2.6-1-cachyos, 7.2.3-1-cachyos and
+6.18.52-1-cachyos-lts passed. Only 7.2.6 was loaded. Another physical reboot
+has not been performed during this session.

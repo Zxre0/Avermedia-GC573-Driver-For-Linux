@@ -236,6 +236,25 @@ int main(void)
 	assert(receiver.status_after == 8 && result.initial_status == 8);
 	assert(result.bytes_read == 4 && result.started == 1);
 	assert(f.regs[GC573_GPIO / 4] == 0x1f958);
+	/* Reproduce reboot with WRITE_DONE still latched and no IRQ owner. */
+	f = receiver_baseline();
+	f.regs[GC573_BLOCK_STATUS / 4] = GC573_BLOCK_WRITE_DONE;
+	assert(!run_receiver(&f, &receiver, &result));
+	assert(receiver.status_before == 1 && receiver.status_after == 1);
+	assert(receiver.steps == 4 && receiver.setup_complete && f.starts == 1);
+	assert(result.initial_status == 1 && result.bytes_read == 4 && result.status == 4);
+	/* An old write completion never substitutes for a fresh read completion. */
+	f = receiver_baseline();
+	f.regs[GC573_BLOCK_STATUS / 4] = GC573_BLOCK_WRITE_DONE;
+	f.completion = GC573_BLOCK_WRITE_DONE;
+	assert(run_receiver(&f, &receiver, &result) == -ETIMEDOUT);
+	assert(receiver.setup_complete && f.starts == 1 && !f.fifo_reads);
+	for (i = 0; i < 2; i++) {
+		f = receiver_baseline();
+		f.regs[GC573_BLOCK_STATUS / 4] = GC573_BLOCK_WRITE_DONE;
+		f.regs[(i ? GC573_IRQ_STATUS : GC573_IRQ_ENABLE) / 4] = 1;
+		assert(run_receiver(&f, &receiver, &result) == -EBUSY && !f.writes);
+	}
 	f = receiver_baseline();
 	f.completion = 8;
 	assert(run_receiver(&f, &receiver, &result) == -ETIMEDOUT);
