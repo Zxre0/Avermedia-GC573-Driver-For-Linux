@@ -500,3 +500,28 @@ ownership/pending IRQs before any write. All C sanitizer tests, 49 Python
 tests, shell checks and W=1 builds for 7.2.6-1-cachyos, 7.2.3-1-cachyos and
 6.18.52-1-cachyos-lts passed. Only 7.2.6 was loaded. Another physical reboot
 has not been performed during this session.
+
+
+## Display-status error interrupted capture (0.46.4, 2026-10-01)
+
+On CachyOS 7.2.8-1-cachyos, 0.46.3 loaded at boot but later stopped at combined
+phase 3 with error -5. FPGA input remained 2560x1440 at 59.955 Hz, and both
+transmitters reported 0x9f. A read-only snapshot under the control mutex found
+external sink DDC status 0x23, cleanup_error=0 and a completed restored-control
+readback. The source was healthy; a monitor-side SCDC status error had latched
+both external and combined workers off.
+
+Version 0.46.4 was built and loaded. External and combined errors cleared,
+both paths became active/ready, and 600 native BGR24 frames streamed at about
+59.95 fps with no capture error and intact DMA guards. The current source was
+60 Hz; this session is not another 120 Hz verification. Preview was reopened.
+Tests inject NACKs and downstream timeouts into each runtime SCDC register,
+verify recovery without changing TX1/reset/EDID controls, and inject every
+upstream transfer/cleanup failure to ensure those still stop. SCDC configuration
+writes retain fatal handling. C sanitizer tests, 49 Python tests and shell
+checks passed. Private diagnostics and captures are excluded from GitHub.
+
+W=1 builds also passed for cached 7.2.3-1-cachyos and installed
+6.18.52-1-cachyos-lts. Only 7.2.8 was loaded. The reopened Preview measured
+about 60 fps; audio DMA ran with zero nonzero bytes during this sample, so
+audible audio was not established by this test.

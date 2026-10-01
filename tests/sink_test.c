@@ -4,7 +4,7 @@
 #undef main
 #include "gc573_sink.h"
 static unsigned char display_edid[512], scdc[256];
-static unsigned int cursor, ddc_fault;
+static unsigned int cursor, ddc_fault, ddc_fault_reg;
 static unsigned int sink_read(void *ctx, unsigned int off)
 {
 	struct fake *f = ctx;
@@ -37,7 +37,9 @@ static int sink_wait_write(void *ctx, unsigned int *status, unsigned int *armed)
 			assert(f->tx_ports[port][0x29] == 0xa8);
 			if (cmd == 1)
 				scdc[f->tx_ports[port][0x2a]] = f->tx_ports[port][0x30];
-			f->tx_ports[port][0x2f] = ddc_fault ? ddc_fault & 255 : 0x80;
+			f->tx_ports[port][0x2f] = ddc_fault &&
+				(!ddc_fault_reg || f->tx_ports[port][0x2a] == ddc_fault_reg) ?
+				ddc_fault & 255 : 0x80;
 		}
 	}
 	return ret;
@@ -52,7 +54,7 @@ static struct fake setup(unsigned int extensions)
 	f.tx_ports[2][0x19] = 0xa1;
 	f.tx_ports[2][0x1d] = 0x42;
 	f.tx_ports[2][0x28] = 0x80;
-	cursor = ddc_fault = 0;
+	cursor = ddc_fault = ddc_fault_reg = 0;
 	memset(scdc, 0, sizeof(scdc));
 	scdc[1] = 1;
 	memset(display_edid, 0, sizeof(display_edid));

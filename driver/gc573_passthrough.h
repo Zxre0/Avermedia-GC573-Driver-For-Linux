@@ -15,7 +15,8 @@ struct gc573_passthrough_state {
 	unsigned int snapshot_valid, stable, configured, prior_valid, scdc_status,
 	    scdc_status_valid, sink_lock;
 	unsigned char snapshot[18], previous[18], prior_edid[256];
-	int error;
+	int error, scdc_last_error;
+	unsigned int scdc_failures;
 	struct gc573_sink_result sink;
 	struct gc573_passthrough_edid advertised;
 	struct gc573_splitter_result identity;

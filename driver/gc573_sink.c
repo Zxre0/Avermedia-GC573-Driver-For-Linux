@@ -176,8 +176,13 @@ restore:
 int gc573_sink_scdc(const struct gc573_block_io *io, struct gc573_sink_result *r, unsigned int reg,
 		    int write, unsigned int *value)
 {
-	unsigned int saved, i;
+	unsigned int saved, i, monitor_error = 0;
 	int ret;
+
+	/* EDID history must not make a failed SCDC transfer appear restored. */
+	r->scdc_retryable = 0;
+	r->cleanup_error = 0;
+	r->status = 0;
 	if (!io->sleep_ms || !value || (write != 0 && write != 1) ||
 	    (reg != 1 && reg != 2 && reg != 0x20 && reg != 0x21 && reg != 0x40) ||
 	    (write && ((reg == 2 && *value != 1) || (reg == 0x20 && *value != 0 && *value != 3) ||
@@ -186,8 +191,11 @@ int gc573_sink_scdc(const struct gc573_block_io *io, struct gc573_sink_result *r
 	ret = rd(io, r, 3);
 	if (ret)
 		return ret;
-	if (!(r->last.data[0] & 1))
+	if (!(r->last.data[0] & 1)) {
+		/* No command or control write was issued; the sink just disappeared. */
+		r->scdc_retryable = !write;
 		return -ENOLINK;
+	}
 	ret = rd(io, r, 0x28);
 	if (ret)
 		return ret;
@@ -220,14 +228,17 @@ int gc573_sink_scdc(const struct gc573_block_io *io, struct gc573_sink_result *r
 		r->status = r->last.data[0];
 		r->polls++;
 		if (r->status & 0x38) {
+			monitor_error = 1;
 			ret = -EIO;
 			break;
 		}
 		if (r->status & 0x80)
 			break;
 	}
-	if (i == 20)
+	if (i == 20) {
+		monitor_error = 1;
 		ret = -ETIMEDOUT;
+	}
 	if (ret) {
 		r->cleanup_error = wr(io, r, 0x2e, 15);
 		if (r->cleanup_error)
@@ -251,5 +262,10 @@ int gc573_sink_scdc(const struct gc573_block_io *io, struct gc573_sink_result *r
 		*value = r->last.data[0];
 	}
 	r->cleanup_error = set(io, r, 0x28, saved);
+	/* Only a read whose downstream DDC error was aborted and whose control
+	 * was restored is safe to observe again. Upstream I2C/programming errors
+	 * and writes retain the existing stopped-state handling.
+	 */
+	r->scdc_retryable = monitor_error && !write && !r->cleanup_error;
 	return ret ? ret : r->cleanup_error;
 }

@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.46.3. Hardware validation and implementation are tracked
+Current driver: 0.46.4. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
@@ -14,6 +14,9 @@ separately; an unchecked item has not been demonstrated complete.
   The boot unit is enabled and has started successfully; the old login unit is disabled.
 - [x] Verify automatic loading after reboot with the startup fix. The user
   confirmed it works; delayed-lock/resume/failure cases also pass startup tests.
+- [x] Fix a cleaned-up HDMI OUT status-read error stopping healthy capture.
+  Retry monitor-side read errors on the ordinary polling schedule; preserve
+  stopped handling for register-transfer, cleanup and configuration failures.
 - [x] Fix the 2026-09-27 reboot failure at receiver startup: accept latched
   WRITE_DONE (status 1), while requiring a fresh read and preserving IRQ guards.
 - [ ] Verify startup after a full power-off/power-on cycle, separately from reboot.

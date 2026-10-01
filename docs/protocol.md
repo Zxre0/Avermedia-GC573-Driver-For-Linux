@@ -298,3 +298,20 @@ MMIO write, so startup never reached video/audio registration. Its preflight
 now accepts GC573_BLOCK_WRITE_DONE, consistent with the shared block-read and
 splitter-startup paths. GPIO ordering/readbacks, IRQ checks and fresh read
 completion requirements are unchanged. This is not a generic busy/error retry.
+
+
+### Runtime display-status read recovery (0.46.4)
+
+A live stop at combined phase 3 showed external_error=-5 while FPGA input and
+both transmitter link flags remained locked. The retained SCDC transaction
+reported DDC status 0x23, cleanup_error=0 and a completed readback of restored
+control 0x28. The former code latched every runtime SCDC error as fatal.
+
+SCDC reads now mark a downstream NACK/timeout retryable only after bounded
+DDC abort and successful control restoration. A sink disappearing before any
+control write is also retryable for reads. Each call clears that classification
+first; failed upstream I2C transfers, incomplete cleanup, and SCDC writes remain
+fatal. Only runtime status observations at 0x21/0x40 consume this classification.
+They invalidate stale status, record external_scdc_error/failures, and keep the
+configured capture path running. The ordinary polling schedule observes the
+monitor again; no source HPD, EDID replacement or transmitter reset is repeated.

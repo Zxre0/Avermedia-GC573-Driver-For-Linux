@@ -1467,6 +1467,12 @@ static ssize_t bringup_status_show(struct device *dev,
 			READ_ONCE(p->advertised.max_tmds_khz), READ_ONCE(p->advertised.scdc),
 			READ_ONCE(p->scdc_status_valid), READ_ONCE(p->scdc_status), READ_ONCE(p->sink_lock));
 		used += sysfs_emit_at(buf, used,
+			"external_scdc_error=%d\nexternal_scdc_failures=%u\n"
+			"external_ddc_status=0x%02x\nexternal_ddc_cleanup_error=%d\n"
+			"external_scdc_retryable=%u\n",
+			p->scdc_last_error, p->scdc_failures, p->sink.status,
+			p->sink.cleanup_error, p->sink.scdc_retryable);
+		used += sysfs_emit_at(buf, used,
 			"external_rx13=0x%02x\nexternal_rx19=0x%02x\nexternal_tx_status=0x%02x\n"
 			"external_last_status=0x%08x\nexternal_video_last_reg=0x%02x\n"
 			"external_video_expected=0x%02x\nexternal_video_observed=0x%02x\n",
@@ -1896,4 +1902,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.46.3");
+MODULE_VERSION("0.46.4");

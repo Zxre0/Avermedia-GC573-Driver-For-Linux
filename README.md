@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.46.3 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.46.4 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -143,6 +143,12 @@ by the source rate. A 30-second recovered 1440p120 test delivered 119.87 native 
 completions per second, with intact guards and no capture errors.
 Longer 120 fps runs and motion/frame-uniqueness checks remain pending. Preview
 displays the measured capture rate separately from incoming HDMI timing.
+Version 0.46.4 fixes capture stopping after a transient HDMI OUT display-status
+read failure. A monitor-side NACK or timeout now leaves the locked capture path
+running once the DDC engine is safely aborted and restored; status is checked
+again on the normal polling schedule. Register-transfer and cleanup failures
+still stop the worker.
+
 Version 0.46.2 adds one automatic transmitter recovery attempt when an otherwise
 completed HDMI setup remains unlocked through six same-rate checks. This fixes
 a reproduced 60-to-120 Hz transition stall without replacing EDID or pulsing

@@ -315,6 +315,62 @@ int main(void)
 			assert(f.trace[j][1] != 1 && f.trace[j][1] != 0xc0);
 	}
 	puts("PASS: one bounded TX1/TX2 stalled-lock restart, settling delay and every transport failure");
+	/* Monitor-side SCDC read faults are recoverable only after clean abort
+	 * and restoration. Both registers must be covered; never retry a write
+	 * or mask a failed upstream I2C transaction / cleanup.
+	 */
+	for (unsigned int fault_reg = 0x21; fault_reg <= 0x40; fault_reg += 0x1f) {
+		for (unsigned int fault = 0; fault < 2; fault++) {
+			struct fake before;
+			struct gc573_passthrough_state configured;
+			unsigned int j, count;
+
+			f = pt_setup();
+			p = (struct gc573_passthrough_state){.phase = 3, .scaled = 1, .advertised = caps};
+			assert(!gc573_passthrough_poll(&io, &p));
+			assert(!gc573_passthrough_poll(&io, &p) && p.active && p.configured);
+			p.polls = 3;
+			ddc_fault = fault ? 0x100 : 0x20;
+			ddc_fault_reg = fault_reg;
+			before = f; configured = p;
+			n = f.writes;
+			assert(!gc573_passthrough_poll(&io, &p));
+			assert(p.stable && p.configured && p.active && !p.error);
+			assert(p.scdc_last_error == (fault ? -ETIMEDOUT : -EIO));
+			assert(p.scdc_failures == 1 && !p.scdc_status_valid && p.sink.scdc_retryable);
+			assert(!p.sink.cleanup_error && f.tx_ports[2][0x28] == before.tx_ports[2][0x28]);
+			for (j = n; j < f.writes; j++) {
+				/* Clock measurement/bank selection plus DDC controls only. */
+				assert(f.trace[j][1] != 1 && f.trace[j][1] != 0xc0 && f.trace[j][1] != 0xc1);
+				assert(f.trace[j][0] != 0x35); /* Internal TX remains untouched. */
+			}
+			count = f.transactions - before.transactions;
+			for (j = 1; j <= count; j++) {
+				f = before; p = configured;
+				f.fail_at = f.transactions + j;
+				assert(gc573_passthrough_poll(&io, &p) < 0);
+				assert(p.error && !p.sink.scdc_retryable && f.transactions == f.fail_at);
+			}
+			f = before; p = configured;
+			assert(!gc573_passthrough_poll(&io, &p));
+			ddc_fault = ddc_fault_reg = 0;
+			p.polls = 7;
+			assert(!gc573_passthrough_poll(&io, &p));
+			assert(p.active && p.configured && !p.error && p.scdc_status_valid);
+			assert(!p.scdc_last_error && p.scdc_failures == 1 && !p.sink.scdc_retryable);
+		}
+	}
+	f = pt_setup();
+	ddc_fault = 0x20;
+	value = 3;
+	assert(gc573_sink_scdc(&io, &d, 0x20, 1, &value) == -EIO && !d.scdc_retryable);
+	f = pt_setup();
+	f.tx_ports[2][3] = 0;
+	value = 0;
+	assert(gc573_sink_scdc(&io, &d, 0x21, 0, &value) == -ENOLINK && d.scdc_retryable && !f.writes);
+	value = 3;
+	assert(gc573_sink_scdc(&io, &d, 0x20, 1, &value) == -ENOLINK && !d.scdc_retryable && !f.writes);
+	puts("PASS: runtime SCDC NACK/timeout recovery, both status registers, writes/transport/cleanup failures remain stopped");
 	puts("PASS: late HDMI lock continuation, 120->60 clock revalidation, all resume transport failures");
 	puts("PASS: transient format waits recover; unsupported input never resets TX; transport failures remain stopped");
 	puts("PASS: HDMI 2.0 SCDC, 498/595 MHz TX2 output, low-rate restore, EDID "

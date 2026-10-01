@@ -229,12 +229,21 @@ static int snapshot(const struct gc573_block_io *io, struct gc573_passthrough_st
 				return -EAGAIN;
 			}
 			if (p->advertised.scdc) {
+				p->scdc_status_valid = 0;
 				ret = gc573_sink_scdc(io, &p->sink, 0x21, 0, &p->scdc_status);
-				if (ret)
-					return ret;
-				ret = gc573_sink_scdc(io, &p->sink, 0x40, 0, &p->sink_lock);
-				if (ret)
-					return ret;
+				if (!ret)
+					ret = gc573_sink_scdc(io, &p->sink, 0x40, 0, &p->sink_lock);
+				p->scdc_last_error = ret;
+				if (ret) {
+					if (!p->sink.scdc_retryable)
+						return ret;
+					/* Monitor standby/NACK must not stop a locked PS5 capture.
+					 * The bounded DDC read completed its abort/restoration;
+					 * observe again at the next normal clock/status poll.
+					 */
+					p->scdc_failures++;
+					return 0;
+				}
 				p->scdc_status_valid = 1;
 			}
 		}
