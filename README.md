@@ -335,15 +335,20 @@ the package manager show its normal confirmation prompts. It installs the
 build tools, matching kernel headers, GTK/Python dependencies, video/audio
 utilities and OBS; builds the driver; installs **GC573 Control** in your app
 menu; and enables automatic loading at boot with saved RGB restoration.
-It uses pacman on Arch/CachyOS and apt on Debian/Ubuntu. Hardware testing remains
-limited to CachyOS; Ubuntu compilation in CI is not a hardware test.
+It uses pacman on Arch/CachyOS, apt on Debian/Ubuntu and dnf on Fedora. Hardware
+testing of the installer is limited to CachyOS; Ubuntu compilation in CI is not a hardware test.
+
+> **Fedora: the automatic installer is untested.** Its Fedora support has not been
+> run on real hardware yet. Fedora 44 *has* been tested and works with the
+> [manual method](#compiling-on-non-arch-distributions), so on Fedora we recommend
+> following that instead of `./install.sh`. If you try the installer anyway,
+> please report the result.
 
 You need administrator access through sudo, a running systemd system, internet
 access for missing packages, and exactly one GC573 for automatic discovery.
 Keep your distribution updated. If repository headers no longer match your
-running kernel, update/reboot and rerun the installer. With Secure Boot, the boot
-service signs the module with an enrolled akmods key
-([details](#boot-startup-from-a-root-owned-copy)). A checkout/home directory unlocked only at login needs the
+running kernel, update/reboot and rerun the installer. With Secure Boot enabled,
+read [Secure Boot](#secure-boot) first. A checkout/home directory unlocked only at login needs the
 [manual login-only setup](#6-load-automatically-after-a-restart).
 
 If dependencies are already installed, or you use another distribution, see the
@@ -396,6 +401,88 @@ registers. Use the same `XDG_CONFIG_HOME`/`XDG_DATA_HOME` values as at installat
 if you customize these directories.
 
 The complete manual method follows for users who prefer individual steps.
+
+## Secure Boot
+
+With Secure Boot enabled, most distribution kernels load only modules signed by
+a key the firmware trusts. An unsigned GC573 module then fails with
+`Key was rejected by service`. Signing is a one-time setup: you create a
+signing key, enroll it once, and from then on the boot service signs every
+module it builds, including automatic rebuilds after kernel updates.
+
+### 1. Check whether you need it
+
+```sh
+mokutil --sb-state
+cat /sys/module/module/parameters/sig_enforce
+cat /sys/kernel/security/lockdown
+```
+
+You need a key if Secure Boot is enabled **and** either `sig_enforce` prints `Y`
+or the lockdown line shows `[integrity]` or `[confidentiality]`. This is the
+usual case on Fedora, Ubuntu and Debian. If `sig_enforce` is `N` and lockdown
+shows `[none]`, the kernel loads unsigned modules even with Secure Boot on (common
+on Arch/CachyOS set up with `sbctl`). In that case you need to do nothing here.
+
+### 2. Create and enroll a signing key
+
+The boot service signs with the key at `/etc/pki/akmods`. This is the same
+Machine Owner Key (MOK) Fedora uses for akmods drivers such as NVIDIA, so if you
+already enrolled one for those drivers, skip to step 3.
+
+On **Fedora**:
+
+```sh
+sudo dnf install akmods mokutil
+sudo kmodgenca -a
+sudo mokutil --import /etc/pki/akmods/certs/public_key.der
+```
+
+On **other distributions that boot through shim** (Ubuntu, Debian and others),
+create a key at the same location with OpenSSL:
+
+```sh
+sudo install -d -m 0755 /etc/pki/akmods/certs
+sudo install -d -m 0700 /etc/pki/akmods/private
+sudo openssl req -new -x509 -newkey rsa:2048 -nodes -days 36500 \
+  -subj "/CN=GC573 module signing/" -outform DER \
+  -keyout /etc/pki/akmods/private/private_key.priv \
+  -out /etc/pki/akmods/certs/public_key.der
+sudo mokutil --import /etc/pki/akmods/certs/public_key.der
+```
+
+`mokutil --import` asks for a one-time password. Reboot. In the blue
+**MOK management** screen, choose **Enroll MOK**, then **Continue** and **Yes**,
+then enter that password and reboot. If you miss the screen, run the import
+again and reboot again. Check the result:
+
+```sh
+mokutil --test-key /etc/pki/akmods/certs/public_key.der   # "...is already enrolled"
+```
+
+MOK enrollment requires the shim boot loader. If you signed your own boot chain
+with custom Secure Boot keys instead (for example with `sbctl`), add this
+certificate to your firmware's `db` using your own tooling.
+
+### 3. Install or start the driver
+
+- **Automatic boot service** (`./install.sh` or `sudo ./tools/install-system-boot.sh`):
+  after every build, the service signs the module with the key above. On SELinux
+  systems such as Fedora it also labels the module `modules_object_t`, because
+  SELinux otherwise refuses to let the boot service load it. Without a key
+  and with signatures enforced, startup stops and prints these instructions.
+  On Fedora, `./install.sh` creates the key and queues enrollment for you when
+  none exists. That path is untested, so on Fedora we recommend doing step 2
+  by hand.
+- **Manual loading** (`sudo ./tools/load-probe.sh`): sign the module after
+  every `./tools/build.sh`, before loading it:
+
+  ```sh
+  sudo ./tools/prepare-module.sh ".build/modules/$(uname -r)/gc573_native.ko" "$(uname -r)"
+  ```
+
+Keep the private key in `/etc/pki/akmods/private` readable only by root.
+Anyone who holds it can sign modules your kernel will trust.
 
 ## Manual installation tutorial — CachyOS
 
@@ -661,6 +748,10 @@ kernel, obtain its matching prepared build tree from its provider. See Debian's
 
 #### Fedora Workstation / conventional Fedora installations
 
+This manual method is the **recommended way to install on Fedora**; the automatic
+installer's Fedora support is still untested. With Secure Boot enabled, set up a
+signing key first ([Secure Boot](#secure-boot)).
+
 ```sh
 sudo dnf install gcc make git clang llvm elfutils-libelf-devel openssl-devel \
   python3 python3-gobject gtk4 kmod sudo util-linux pciutils v4l-utils \
@@ -756,7 +847,8 @@ and the driver waits for HDMI in the background. For automatic loading after reb
 [step 6](#6-load-automatically-after-a-restart). Alternatively, after installing
 the dependencies in section A, `./install.sh --skip-deps` performs sections C/D
 and boot-service installation together. Debian/Ubuntu can also use `./install.sh`
-to install dependencies automatically; Fedora/openSUSE need `--skip-deps`.
+to install dependencies automatically. Fedora can too, but that path is untested
+and the manual steps above are recommended. openSUSE needs `--skip-deps`.
 
 ### Boot startup from a root-owned copy
 
@@ -792,17 +884,9 @@ sudo ./tools/install-system-boot.sh --remove
 
 After every build the service signs the module and, on SELinux systems such as
 Fedora, labels it `modules_object_t`; without that label SELinux refuses
-`insmod` from the boot service with `Permission denied`. For **Secure Boot** it
-signs with the akmods Machine Owner Key in `/etc/pki/akmods`, the key Fedora
-already uses for akmods drivers such as NVIDIA. If no such key exists and the
-kernel enforces signatures, startup stops with instructions. To create and
-enroll one (you confirm the import in the blue MOK screen on the next boot):
-
-```sh
-sudo dnf install akmods mokutil
-sudo kmodgenca -a
-sudo mokutil --import /etc/pki/akmods/certs/public_key.der
-```
+`insmod` from the boot service with `Permission denied`. With **Secure Boot**,
+it signs with the key in `/etc/pki/akmods`; see [Secure Boot](#secure-boot) to
+create and enroll one.
 
 ### E. Kernel updates and loading errors
 
@@ -812,10 +896,9 @@ rebuilds for the running kernel automatically when the matching headers and
 compiler are available. This project does not provide DKMS or akmods integration.
 
 If loading reports `Key was rejected by service` or a signature/lockdown error,
-follow your distribution's module-signing and key-enrollment procedure. Signing
-is not automated here; every rebuilt module needs signing again, including a
-build made by the boot service. Manual signing once does not make the automatic
-rebuild path ready for a system enforcing signatures.
+follow [Secure Boot](#secure-boot). The boot service signs each rebuild
+automatically once a key is enrolled. A module you build and load manually must
+be signed again after every build.
 
 For build failures, include `uname -r`, `/etc/os-release` and the compiler error
 when reporting an issue. A successful build does not expand the supported video

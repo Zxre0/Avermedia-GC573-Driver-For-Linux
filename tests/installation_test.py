@@ -293,6 +293,60 @@ class InstallationTest(unittest.TestCase):
         self.assertIn('linux-headers-test-kernel', calls)
         self.assertIn('python3-gi gir1.2-gtk-4.0', calls)
 
+    def fedora_installer(self, sig_enforce='N', key=False):
+        script = self.installer()
+        source = script.read_text().replace('if command -v pacman >/dev/null;', 'if false;')
+        source = source.replace('elif command -v apt-get >/dev/null;', 'elif false;')
+        source = source.replace('/lib/modules/', str(self.root) + '/modules/').replace('/sys/', str(self.root) + '/sys/')
+        script.write_text(source)
+        self.put(self.root / 'sys/module/module/parameters/sig_enforce', sig_enforce + '\n')
+        if key:
+            self.put(self.root / 'etc/pki/akmods/certs/public_key.der')
+        self.fake('uname', 'echo 7.2.11-200.fc44.x86_64\n')
+        for tool in ('dnf', 'kmodgenca', 'mokutil'):
+            self.fake(tool, f'echo "{tool} $*" >> "$CALLS"\nexit "${{DNF_EXIT:-0}}"\n')
+        return script
+
+    def test_fedora_dependencies_install_matching_kernel_devel(self):
+        script = self.fedora_installer()
+        result = subprocess.run([script], env=dict(self.env, DNF_EXIT='1'), capture_output=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn('build.sh', self.calls.read_text())
+        self.calls.unlink()
+        result = subprocess.run([script], env=self.env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls.read_text()
+        self.assertIn('kernel-devel-7.2.11-200.fc44.x86_64', calls)
+        self.assertIn('python3-gobject gtk4', calls)
+        self.assertNotIn('akmods', calls)
+        self.assertLess(calls.index('dnf install'), calls.index('build.sh'))
+        self.assertIn('systemctl start --no-block gc573-native-system.service', calls)
+
+    def test_fedora_variant_kernel_and_existing_headers(self):
+        script = self.fedora_installer()
+        self.fake('uname', 'echo 7.2.11-200.fc44.x86_64+debug\n')
+        subprocess.run([script], env=self.env, capture_output=True, check=True)
+        self.assertIn('kernel-debug-devel-7.2.11-200.fc44.x86_64\n', self.calls.read_text())
+        self.calls.unlink()
+        self.put(self.root / 'modules/7.2.11-200.fc44.x86_64+debug/build/Makefile')
+        subprocess.run([script], env=self.env, capture_output=True, check=True)
+        self.assertNotIn('kernel-debug-devel', self.calls.read_text())
+
+    def test_fedora_secure_boot_enrolls_akmods_key_and_defers_start(self):
+        script = self.fedora_installer(sig_enforce='Y')
+        result = subprocess.run([script], env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls.read_text()
+        self.assertIn('akmods mokutil', calls)
+        self.assertLess(calls.index('kmodgenca -a'), calls.index('mokutil --import'))
+        self.assertLess(calls.index('mokutil --import'), calls.index('build.sh'))
+        self.assertNotIn('systemctl start', calls)
+        self.assertIn('Enroll MOK', result.stdout)
+        self.calls.unlink()
+        script = self.fedora_installer(sig_enforce='Y', key=True)
+        subprocess.run([script], env=self.env, capture_output=True, check=True)
+        self.assertNotIn('mokutil', self.calls.read_text())
+
     def test_uninstall_restores_wireplumber_when_second_unload_fails(self):
         source = (PROJECT / 'uninstall.sh').read_text().replace('$EUID -ne 0', '1 -eq 1')
         script = self.put(self.project / 'uninstall.sh', source, True)
