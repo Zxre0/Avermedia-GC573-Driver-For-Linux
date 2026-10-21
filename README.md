@@ -281,7 +281,7 @@ HDMI 2.0 limits. It enables SCDC scrambling and the high-speed clock ratio above
 **OBS video and ALSA capture are disabled in this mode**, including when the
 source sends 1080p. Use the experimental `scaled` mode above when host capture
 is needed. RGB controls remain available. Close OBS and other capture applications, then run
-as your normal desktop user after installing the helper:
+as your normal desktop user after installation (sudo is requested to reload the driver):
 
 ```sh
 python3 tools/set-mode.py passthrough
@@ -341,8 +341,9 @@ limited to CachyOS; Ubuntu compilation in CI is not a hardware test.
 You need administrator access through sudo, a running systemd system, internet
 access for missing packages, and exactly one GC573 for automatic discovery.
 Keep your distribution updated. If repository headers no longer match your
-running kernel, update/reboot and rerun the installer. Secure Boot signing is
-not automated. A checkout/home directory unlocked only at login needs the
+running kernel, update/reboot and rerun the installer. With Secure Boot, the boot
+service signs the module with an enrolled akmods key
+([details](#boot-startup-from-a-root-owned-copy)). A checkout/home directory unlocked only at login needs the
 [manual login-only setup](#6-load-automatically-after-a-restart).
 
 If dependencies are already installed, or you use another distribution, see the
@@ -352,11 +353,14 @@ If dependencies are already installed, or you use another distribution, see the
 ./install.sh --skip-deps
 ```
 
-The installer enables the privileged helper described in
-[step 6](#6-load-automatically-after-a-restart): this trusts the checkout and its
-module with root/kernel execution. Keep the checkout in the same location.
+The installer sets up the [root-owned boot service](#boot-startup-from-a-root-owned-copy):
+it copies the driver into `/usr/local/lib/gc573-native` and loads it from there,
+so no password-free sudo rule is installed and nothing in your checkout runs as
+root. **After pulling updates or editing the source, rerun
+`./install.sh --skip-deps`** so boot uses the new code. Rerunning it also
+upgrades an older helper-based installation and removes its sudoers rule.
 Installation queues initialization; check its result with
-`systemctl status gc573-native-boot.service --no-pager`. A late HDMI source is
+`systemctl status gc573-native-system.service --no-pager`. A late HDMI source is
 handled by the startup service. Open **GC573 Control** from the app menu, then
 follow [step 5](#5-configure-obs-video-and-audio) to add video and audio in OBS.
 The installer does not overwrite your OBS scenes or profiles.
@@ -537,11 +541,12 @@ in OBS. For a stable video-device path, use the card's entry in
 
 ### 6. Load automatically after a restart
 
-To load at boot **without** a password-free sudo rule, use the
-[root-owned boot service](#boot-startup-from-a-root-owned-copy) instead of the
-helper-based service below.
+`./install.sh` enables the [root-owned boot service](#boot-startup-from-a-root-owned-copy),
+which needs no password-free sudo rule; to set it up by hand, run
+`sudo ./tools/install-system-boot.sh`. The helper-based service below is a
+**development option** for unattended diagnostics only.
 
-Install the system boot service once, from your normal account in the checkout:
+To install the helper-based development service instead, from your normal account in the checkout:
 
 ```sh
 sudo ./tools/enable-unattended-probes.sh
@@ -774,9 +779,8 @@ is already loaded preserves the running device.
 
 Because the boot copy is separate, **rerun `sudo ./tools/install-system-boot.sh`
 after pulling updates or editing the source**; otherwise boot keeps loading the
-previous copy. It cannot be installed alongside the helper-based
-`gc573-native-boot.service` (remove that first with
-`./tools/install-startup.sh --remove-boot`). Check or remove it with:
+previous copy. It replaces the helper-based `gc573-native-boot.service` if that
+is installed. Check or remove it with:
 
 ```sh
 systemctl status gc573-native-system.service --no-pager

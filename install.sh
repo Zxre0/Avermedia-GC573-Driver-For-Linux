@@ -44,7 +44,7 @@ if [[ ${1:-} != --skip-deps ]]; then
     fi
 fi
 
-# Validate everything we can before granting helper access or enabling startup.
+# Validate everything we can before any system change or enabling startup.
 python3 -c "import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk"
 python3 - <<'PY'
 import gi
@@ -61,13 +61,19 @@ if missing:
 PY
 python3 "$project/tools/find-card.py"
 "$project/tools/build.sh"
-sudo "$project/tools/enable-unattended-probes.sh"
-"$project/tools/run-probe.sh" --check
 "$project/tools/install-app.sh"
-"$project/tools/install-startup.sh" --boot
+# Boot startup runs from a root-owned copy; no password-free sudo rule.
+# Older installations used a login unit and a password-free helper: retire both.
+"$project/tools/install-startup.sh" --remove
+sudo "$project/tools/install-system-boot.sh"
+if [[ -e /usr/local/sbin/gc573-codex-probe || -e /etc/sudoers.d/gc573-codex ]]; then
+    sudo "$project/tools/enable-unattended-probes.sh" --remove
+fi
+sudo systemctl start --no-block gc573-native-system.service
 printf '\nInstallation complete; boot startup has been queued.\n'
 printf 'The driver and RGB controls load without HDMI input; capture starts when a supported source is ready.\n'
 printf 'Open GC573 Control from your application menu. Connect an active 1080p60 RGB8 SDR HDMI source.\n'
 printf 'For a simple console window to share in Discord, open GC573 Preview with OBS closed.\n'
-printf 'Check initialization: systemctl status gc573-native-boot.service --no-pager\n'
-printf 'OBS video/audio setup is in README.md, step 5. Keep this checkout in its current location.\n'
+printf 'Check initialization: systemctl status gc573-native-system.service --no-pager\n'
+printf 'OBS video/audio setup is in README.md, step 5.\n'
+printf 'After updating or editing this checkout, rerun ./install.sh --skip-deps to refresh boot startup.\n'
