@@ -1,6 +1,6 @@
 # GC573 driver work
 
-Current driver: 0.46.4. Hardware validation and implementation are tracked
+Current driver: 0.46.5. Hardware validation and implementation are tracked
 separately; an unchecked item has not been demonstrated complete.
 
 - [x] Deliver live native OBS video: 1920×1080 at 60 fps verified.
