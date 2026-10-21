@@ -20,6 +20,8 @@ video_capture=0
 hdmi_deferred=0
 passthrough_only=0
 scaled_capture=0
+experimental_144hz=0
+experimental_parameters=()
 frame_capture=0
 fpga_read=0
 board_read=0
@@ -65,6 +67,8 @@ case ${1:-} in
     --start-scaled) identity_read=1; auto_start=1; auto_scaled=1; shift ;;
     --start-passthrough) identity_read=1; auto_start=1; auto_passthrough=1; shift ;;
     --scaled-video) identity_read=1; video_capture=1; scaled_capture=1; shift ;;
+    --scaled-video-144hz) identity_read=1; video_capture=1; scaled_capture=1; experimental_144hz=1; experimental_parameters=(experimental_144hz=1); shift ;;
+    --capture-wait-144hz) identity_read=1; video_capture=1; scaled_capture=1; hdmi_deferred=1; experimental_144hz=1; experimental_parameters=(experimental_144hz=1); shift ;;
     --passthrough-video) identity_read=1; video_capture=1; passthrough_only=1; shift ;;
     --sink-edid) identity_read=1; sink_read=1; shift ;;
     --start) identity_read=1; auto_start=1; shift ;;
@@ -405,7 +409,7 @@ if [[ -d /sys/module/gc573_native && !( "$identity_read" == 1 && "$existing_driv
     echo "gc573_native is already loaded; refusing to affect another device." >&2
     exit 1
 fi
-for entry in "$sink_read:probe_sink" "$capture_profile:restore_capture_profile" "$passthrough_only:passthrough_only" "$scaled_capture:scaled_capture"; do
+for entry in "$sink_read:probe_sink" "$capture_profile:restore_capture_profile" "$passthrough_only:passthrough_only" "$scaled_capture:scaled_capture" "$experimental_144hz:experimental_144hz"; do
     if [[ ${entry%%:*} == 1 ]] && [[ "$(modinfo -p "$module")" != *"${entry#*:}:"* ]]; then
         echo 'Rebuild the module for the requested HDMI mode.' >&2; exit 1
     fi
@@ -414,6 +418,8 @@ if [[ $EUID -ne 0 ]]; then
     echo "Preflight passed. Loading a kernel module requires root. Run in your terminal:" >&2
     if [[ "$capture_profile" == 1 ]]; then
         printf 'sudo %q --capture-profile %q\n' "$0" "$bdf" >&2
+    elif [[ "$experimental_144hz" == 1 ]]; then
+        printf 'sudo %q --scaled-video-144hz %q\n' "$0" "$bdf" >&2
     elif [[ "$scaled_capture" == 1 ]]; then
         printf 'sudo %q --scaled-video %q\n' "$0" "$bdf" >&2
     elif [[ "$auto_scaled" == 1 ]]; then
@@ -517,6 +523,9 @@ if [[ "$hdmi_deferred" == 1 ]]; then
     parameters=$(modinfo -p "$module")
     [[ "$parameters" == *"hdmi_start_phase:"* ]] || { echo 'Rebuild for deferred HDMI startup.' >&2; exit 1; }
     hdmi_phase=$(python3 "$project_dir/tools/start-capture.py" --handoff-phase "$bdf")
+    if [[ "$experimental_144hz" == 1 && "$hdmi_phase" != 6 ]]; then
+        echo 'Experimental input requires the checked phase6 cold handoff.' >&2; exit 1
+    fi
 fi
 modprobe snd-pcm
 modprobe videodev
@@ -527,7 +536,7 @@ if [[ "$identity_read" == 1 ]]; then
         rmmod gc573_native
     fi
     if [[ "$video_capture" == 1 ]]; then
-        insmod "$module" "target_bdf=$bdf" read_offsets=0 capture_video=1 "hdmi_start_phase=$hdmi_phase" "passthrough_only=$passthrough_only" "scaled_capture=$scaled_capture"
+        insmod "$module" "target_bdf=$bdf" read_offsets=0 capture_video=1 "hdmi_start_phase=$hdmi_phase" "passthrough_only=$passthrough_only" "scaled_capture=$scaled_capture" "${experimental_parameters[@]}"
     elif [[ "$frame_capture" == 1 ]]; then
         insmod "$module" "target_bdf=$bdf" read_offsets=0 capture_once=1
     elif [[ "$fpga_read" == 1 ]]; then

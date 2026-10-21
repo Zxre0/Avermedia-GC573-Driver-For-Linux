@@ -116,6 +116,22 @@ int main(void)
 		assert(f.starts == i);
 	}
 	puts("PASS: 1440p dual TTL clock, lane selection, output controls and each transport failure");
+	/* Synthetic >510 MHz input: opt-in only, same dual-DDR controls. */
+	f=dual; f.receiver[0][0x99]=17;
+	assert(run(&f,&r,2)==-ERANGE);
+	f=dual; f.receiver[0][0x99]=17;
+	assert(!run(&f,&r,3));
+	assert(r.pixel_min_khz>510000 && r.pixel_max_khz<=600000);
+	assert(r.complete && r.output_enabled && !f.bank);
+	assert((f.receiver[1][0xc0]&1) && (f.receiver[1][0xc1]&2));
+	assert((f.receiver[1][0xbd]&0x30)==0x10 && f.receiver[1][0xc4]==0x20);
+	f=dual; f.receiver[0][0x99]=16;
+	assert(run(&f,&r,3)==-ERANGE && !r.complete && !r.output_enabled);
+	f=dual; f.receiver[0][0x99]=17; f.receiver[2][0x15]=0x20;
+	assert(run(&f,&r,3)==-EOPNOTSUPP && !r.output_enabled);
+	f=dual; f.receiver[0][0x99]=17; f.receiver[0][0x98]=0x12;
+	assert(run(&f,&r,3)==-EOPNOTSUPP && !r.output_enabled);
+	puts("PASS: opt-in-only <=600 MHz RGB8/progressive receiver, same dual-TTL controls");
 
 	return 0;
 }

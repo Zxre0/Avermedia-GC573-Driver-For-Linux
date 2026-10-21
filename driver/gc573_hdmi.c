@@ -100,6 +100,19 @@ static int phase(const struct gc573_block_io *io, struct gc573_hdmi *h)
 	}
 }
 
+int gc573_hdmi_prepare_capture(const struct gc573_block_io *io, struct gc573_hdmi *h)
+{
+	int ret;
+	if (h->error)
+		return h->error;
+	if (h->phase == 14)
+		return 1;
+	if (h->phase < GC573_HDMI_FIRST || h->phase > 14)
+		return h->error = -EINVAL;
+	ret = gc573_hdmi_poll(io, h);
+	return ret ? ret : h->phase == 14;
+}
+
 int gc573_hdmi_poll(const struct gc573_block_io *io, struct gc573_hdmi *h)
 {
 	int ret;

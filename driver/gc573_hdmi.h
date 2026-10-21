@@ -25,4 +25,6 @@ struct gc573_hdmi {
 };
 
 int gc573_hdmi_poll(const struct gc573_block_io *io, struct gc573_hdmi *h);
+/* Return 1 after cold phases6..13, without running restricted phase14. */
+int gc573_hdmi_prepare_capture(const struct gc573_block_io *io, struct gc573_hdmi *h);
 #endif

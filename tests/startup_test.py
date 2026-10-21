@@ -180,6 +180,47 @@ class StartupTest(TestCase):
         self.assertEqual(startup.read_checkpoint()['next'], 6)
         self.assertTrue(startup.read_checkpoint()['pending'])
 
+    def test_experimental_cold_plan_hands_off_six_before_restricted_video(self):
+        result=dict(READY, capture_experimental_144hz='1', scaled_capture='1')
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step', side_effect=[{}, {'bar0[0x00000040]':'0x0001f850'}, result]) as step, mock.patch.object(startup, 'run_phase') as phase:
+            status.exists.return_value=False
+            startup.initialize(experimental_144hz=True)
+        self.assertEqual([c.args[0] for c in phase.call_args_list], [mode for mode,_ in startup.PHASES[:6]])
+        self.assertEqual(step.call_args.args[0], '--capture-wait-144hz')
+        self.assertEqual(startup.read_checkpoint()['next'],6)
+        self.assertTrue(startup.read_checkpoint()['pending'])
+
+    def test_experimental_restart_preserves_waiting_device_and_stops_errors(self):
+        startup.save_checkpoint(6,pending=True)
+        data=dict(READY, capture_experimental_144hz='1', scaled_capture='1', hdmi_ready='0', hdmi_error='0', combined_error='0')
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
+            status.exists.return_value=True
+            status.read_text.return_value='\n'.join(f'{k}={v}' for k,v in data.items())
+            startup.initialize(experimental_144hz=True)
+            step.assert_not_called()
+            data['hdmi_error']='-110'
+            status.read_text.return_value='\n'.join(f'{k}={v}' for k,v in data.items())
+            with self.assertRaises(RuntimeError): startup.initialize(experimental_144hz=True)
+            step.assert_not_called()
+
+    def test_experimental_rejects_later_checkpoint_without_marking_pending(self):
+        startup.save_checkpoint(14)
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step', side_effect=[{}, {'bar0[0x00000040]':'0x0001fd7c'}]), mock.patch.object(startup, 'run_phase') as phase:
+            status.exists.return_value=False
+            with self.assertRaisesRegex(RuntimeError,'phase6'):
+                startup.initialize(experimental_144hz=True)
+            phase.assert_not_called()
+        self.assertEqual(startup.read_checkpoint()['next'],14)
+        self.assertFalse(startup.read_checkpoint()['pending'])
+
+    def test_experimental_refuses_to_replace_a_different_active_profile(self):
+        with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
+            status.exists.return_value=True
+            status.read_text.return_value='\n'.join(f'{k}={v}' for k,v in READY.items())
+            with self.assertRaisesRegex(RuntimeError,'different capture profile'):
+                startup.initialize(experimental_144hz=True)
+            step.assert_not_called()
+
     def test_restart_preserves_registered_device_while_waiting_for_hdmi(self):
         startup.save_checkpoint(6, pending=True)
         data = dict(READY, hdmi_ready='0', capture_error='-67')

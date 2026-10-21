@@ -160,7 +160,9 @@ static int rv_output(const struct gc573_block_io *io,
 		return -ERANGE;
 	r->pixel_min_khz = ref * 5 * 512 / sum;
 	r->pixel_max_khz = (ref + 99) * 5 * 512 / sum;
-	if (r->pixel_min_khz < 70000 || r->pixel_max_khz > (extended ? 510000U : 150000U))
+	if (r->pixel_min_khz < 70000 || r->pixel_max_khz >
+	    (extended == 2 && r->width == 2560 && r->height == 1440 ? 600000U :
+	     extended ? 510000U : 150000U))
 		return -ERANGE;
 	dual = extended && (r->width > 1920 || r->pixel_max_khz > 150000);
 	r->phase = 6;
@@ -280,7 +282,8 @@ int gc573_receiver_video(const struct gc573_block_io *io,
 	if (!r->width || !r->height || r->width >= r->htotal || r->height >= r->vtotal)
 		return -ERANGE;
 	if (enable) {
-		ret = rv_output(io, r, enable == 2);
+		/* 3: explicit 1440p144 RGB8 input profile; reuse dual-DDR ops. */
+		ret = rv_output(io, r, enable == 3 ? 2 : enable == 2);
 		if (ret)
 			return ret;
 	}

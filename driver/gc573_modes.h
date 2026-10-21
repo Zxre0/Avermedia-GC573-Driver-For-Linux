@@ -35,6 +35,25 @@ static inline unsigned int gc573_capture_max_fps(unsigned int width, unsigned in
 		return 60;
 	return width == 2560 && height == 1440 && bandwidth_mbps >= 16000 ? 120 : 0;
 }
+/* Opt-in changes the input envelope, never the paced capture/DMA rate. */
+static inline unsigned int gc573_capture_profile_max_fps(unsigned int width,
+    unsigned int height, unsigned int bandwidth_mbps, unsigned int experimental_144hz)
+{
+	unsigned int maximum = gc573_capture_max_fps(width, height, bandwidth_mbps);
+	return experimental_144hz && maximum > 60 ? 60 : maximum;
+}
+static inline int gc573_input_period_supported(unsigned int width, unsigned int height,
+    unsigned int period, unsigned int experimental_144hz)
+{
+	if (period >= 100000000U / 121 && period <= 100000000U / 23)
+		return 1;
+	/* Use inclusive counter-quantized boundaries, as in the legacy gate:
+	 * a 145 Hz input can produce floor(100 MHz / 145), not its ceiling.
+	 * RGB8 geometry is checked separately by receiver/splitter guards.
+	 */
+	return experimental_144hz && width == 2560 && height == 1440 &&
+		period >= 100000000U / 145 && period <= 100000000U / 143;
+}
 static inline unsigned int gc573_capture_rate(unsigned int requested, unsigned int maximum)
 {
 	if (!maximum)

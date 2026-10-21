@@ -69,7 +69,7 @@ struct gc573_capture {
 	spinlock_t queue_lock;
 	struct list_head queued;
 	struct task_struct *thread;
-	bool stopping, registered, streaming;
+	bool stopping, registered, streaming, experimental_144hz;
 	unsigned int sequence, slot, link_recoveries;
 	unsigned int width, height, frame_bytes, descriptors;
 	unsigned int input_width, input_height, fps, video_control;
@@ -251,6 +251,13 @@ static irqreturn_t cap_interrupt(int irq, void *opaque)
 	return IRQ_HANDLED;
 }
 
+static unsigned int cap_max_fps(struct gc573_capture *c, unsigned int width,
+    unsigned int height)
+{
+	return gc573_capture_profile_max_fps(width, height, c->pcie_bandwidth,
+		c->experimental_144hz);
+}
+
 static bool cap_input_matches(struct gc573_capture *c)
 {
 	u32 period = cap_read(c, 0x1010);
@@ -258,8 +265,9 @@ static bool cap_input_matches(struct gc573_capture *c)
 	return (!c->io.ready || c->io.ready(c->io.ctx)) &&
 		c->width <= c->input_width && c->height <= c->input_height &&
 		(cap_read(c, 0x1004) & 1) && cap_input_width(c) == c->input_width &&
-		cap_read(c, 0x100c) == c->input_height && period >= 100000000U / 121 &&
-		period <= 100000000U / 23;
+		cap_read(c, 0x100c) == c->input_height &&
+		gc573_input_period_supported(c->input_width, c->input_height, period,
+			c->experimental_144hz);
 }
 
 /* Called with the V4L2 queue idle, before any DMA is armed. */
@@ -374,7 +382,7 @@ static int cap_enable(struct gc573_capture *c)
 	};
 	/* Recheck after a link retrain, before arming any large-frame DMA. */
 	c->pcie_bandwidth = pcie_bandwidth_available(c->pdev, NULL, NULL, NULL);
-	if (c->fps > gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth))
+	if (c->fps > cap_max_fps(c, c->width, c->height))
 		return -EOPNOTSUPP;
 
 	c->scaler_error = gc573_scaler_configure(&scaler_io, &c->scaler,
@@ -806,7 +814,7 @@ static int cap_try_format(struct file *file, void *priv, struct v4l2_format *f)
 	unsigned int width = f->fmt.pix.width <= 1280 && f->fmt.pix.height <= 720 ? 1280 : 1920;
 
 	if (f->fmt.pix.width > 1920 && f->fmt.pix.height > 1080 &&
-	    gc573_capture_max_fps(2560, 1440, c->pcie_bandwidth))
+	    cap_max_fps(c, 2560, 1440))
 		width = 2560;
 	cap_fill_format(f, width, width == 2560 ? 1440 : width == 1280 ? 720 : 1080);
 	return 0;
@@ -822,7 +830,7 @@ static int cap_set_format(struct file *file, void *priv, struct v4l2_format *f)
 	c->width = f->fmt.pix.width;
 	c->height = f->fmt.pix.height;
 	c->frame_bytes = gc573_mode_bytes(c->width, c->height);
-	c->fps = min(c->fps, gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth));
+	c->fps = min(c->fps, cap_max_fps(c, c->width, c->height));
 	return 0;
 }
 
@@ -831,7 +839,7 @@ static int cap_enum_size(struct file *file, void *priv, struct v4l2_frmsizeenum 
 	struct gc573_capture *c = video_drvdata(file);
 
 	if (f->index > 2 || f->pixel_format != V4L2_PIX_FMT_BGR24 ||
-	    (f->index == 2 && !gc573_capture_max_fps(2560, 1440, c->pcie_bandwidth)))
+	    (f->index == 2 && !cap_max_fps(c, 2560, 1440)))
 		return -EINVAL;
 	f->type = V4L2_FRMSIZE_TYPE_DISCRETE;
 	f->discrete.width = f->index == 2 ? 2560 : f->index ? 1280 : 1920;
@@ -849,10 +857,10 @@ static int cap_enum_interval(struct file *file, void *priv, struct v4l2_frmivale
 	};
 
 	if (f->pixel_format != V4L2_PIX_FMT_BGR24 ||
-	    !gc573_capture_max_fps(f->width, f->height, c->pcie_bandwidth))
+	    !cap_max_fps(c, f->width, f->height))
 		return -EINVAL;
 	f->type = V4L2_FRMIVAL_TYPE_DISCRETE;
-	if (f->width == 2560) {
+	if (f->width == 2560 && cap_max_fps(c, f->width, f->height) > 60) {
 		if (index < 2) {
 			f->discrete = index ? (struct v4l2_fract){1001, 120000} :
 				(struct v4l2_fract){1, 120};
@@ -893,10 +901,10 @@ static int cap_set_parm(struct file *file, void *priv, struct v4l2_streamparm *p
 	if (vb2_is_busy(&c->queue))
 		return -EBUSY;
 	/* Quantize to a supported whole-fps cap; 59.94 must select 60, not 59. */
-	if (!gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth))
+	if (!cap_max_fps(c, c->width, c->height))
 		return -EOPNOTSUPP;
 	fps = f.numerator ? DIV_ROUND_CLOSEST_ULL((u64)f.denominator, f.numerator) : 60;
-	c->fps = gc573_capture_rate(fps, gc573_capture_max_fps(c->width, c->height, c->pcie_bandwidth));
+	c->fps = gc573_capture_rate(fps, cap_max_fps(c, c->width, c->height));
 	return cap_parm(file, priv, p);
 }
 
@@ -1056,7 +1064,8 @@ unregister:
 	return ret;
 }
 
-struct gc573_capture *gc573_capture_create(struct pci_dev *pdev, void __iomem *bar, bool stream, const struct gc573_block_io *io)
+struct gc573_capture *gc573_capture_create(struct pci_dev *pdev, void __iomem *bar,
+    bool stream, bool experimental_144hz, const struct gc573_block_io *io)
 {
 	struct gc573_capture *c = kzalloc(sizeof(*c), GFP_KERNEL);
 
@@ -1065,6 +1074,7 @@ struct gc573_capture *gc573_capture_create(struct pci_dev *pdev, void __iomem *b
 	c->pdev = pdev;
 	c->bar = bar;
 	c->io = *io;
+	c->experimental_144hz = experimental_144hz;
 	spin_lock_init(&c->engine_lock);
 	mutex_init(&c->led_mutex);
 	c->led_color = 0xffffff;
@@ -1177,8 +1187,8 @@ ssize_t gc573_capture_status(struct gc573_capture *c, char *buf, ssize_t used)
 	used = gc573_audio_status(c->audio, buf, used);
 	used += sysfs_emit_at(buf, used, "audio_error=%d\n", c->audio_error);
 	used += sysfs_emit_at(buf, used,
-		"capture_pcie_mbps=%u\ncapture_native_1440p120=%u\n",
-		c->pcie_bandwidth, !!gc573_capture_max_fps(2560, 1440, c->pcie_bandwidth));
+		"capture_pcie_mbps=%u\ncapture_native_1440p120=%u\ncapture_experimental_144hz=%u\n",
+		c->pcie_bandwidth, cap_max_fps(c, 2560, 1440) >= 120, c->experimental_144hz);
 	used += sysfs_emit_at(buf, used,
 		"capture_width=%u\ncapture_height=%u\ncapture_fps_limit=%u\ncapture_timer_period=%u\n"
 		"capture_scaler_error=%d\ncapture_scaler_enabled=%u\ncapture_scaler_verified=%u\n"

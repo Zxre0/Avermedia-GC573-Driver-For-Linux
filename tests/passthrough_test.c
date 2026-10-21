@@ -373,6 +373,29 @@ int main(void)
 	puts("PASS: runtime SCDC NACK/timeout recovery, both status registers, writes/transport/cleanup failures remain stopped");
 	puts("PASS: late HDMI lock continuation, 120->60 clock revalidation, all resume transport failures");
 	puts("PASS: transient format waits recover; unsupported input never resets TX; transport failures remain stopped");
+	/* Synthetic high-clock TX1: default path still rejects; only explicit
+	 * opt-in survives both the initial setup and completed link wait.
+	 */
+	f = pt_setup(); f.selected_port = 1; f.video_raw = 72;
+	memcpy(f.tx_ports[1], f.tx_ports[2], 256);
+	video = (struct gc573_splitter_video_result){0};
+	assert(gc573_splitter_video_internal_profile(&io,&identity,&link,&video,0)==-EOPNOTSUPP);
+	f = pt_setup(); f.selected_port = 1; f.video_raw = 72;
+	memcpy(f.tx_ports[1], f.tx_ports[2], 256);
+	f.tx_ports[1][3] = 0x17;
+	video = (struct gc573_splitter_video_result){0};
+	assert(gc573_splitter_video_internal_profile(&io,&identity,&link,&video,1)==-ENOLINK);
+	assert(video.waiting_link && video.link_khz>510000 && video.link_khz<=600000);
+	f.tx_ports[1][3] = 0x9f;
+	n = f.writes;
+	assert(!gc573_splitter_video_internal_profile(&io,&identity,&link,&video,1));
+	assert(video.complete && video.output_enabled && !video.waiting_link);
+	for (i=n;i<f.writes;i++) assert(f.trace[i][0]!=0x36);
+	f = pt_setup(); f.selected_port = 1; f.video_raw = 71;
+	memcpy(f.tx_ports[1], f.tx_ports[2], 256);
+	video = (struct gc573_splitter_video_result){0};
+	assert(gc573_splitter_video_internal_profile(&io,&identity,&link,&video,1)==-EOPNOTSUPP);
+	puts("PASS: opt-in-only <=600 MHz TX1 initial/resume, TX2 unchanged, >600 rejected");
 	puts("PASS: HDMI 2.0 SCDC, 498/595 MHz TX2 output, low-rate restore, EDID "
 	     "SRAM verification, mode worker and failure injection");
 }

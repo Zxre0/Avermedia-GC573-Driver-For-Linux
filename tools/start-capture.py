@@ -184,8 +184,17 @@ def initialize_scaled():
          capture_error=0, led_error=0)
 
 
-def initialize(passthrough=False):
+def initialize(passthrough=False, experimental_144hz=False):
     current = fields(STATUS.read_text()) if STATUS.exists() else {}
+    if experimental_144hz and number(current, 'capture_video_registered'):
+        if not number(current, 'capture_experimental_144hz'):
+            raise RuntimeError('A different capture profile is already loaded; do not replace an active device')
+        if number(current, 'hdmi_error') or number(current, 'combined_error'):
+            raise RuntimeError('Experimental input initialization stopped; automatic replay refused')
+        if not ready(current):
+            raise RuntimeError('Experimental capture device is not healthy; inspect diagnostics')
+        print('Experimental input-only capture is already loaded; preserving the device.')
+        return
     if ready(current) and not number(current, 'scaled_capture') and bool(number(current, 'passthrough_only')) == passthrough:
         # Keep the guard against reloading an interrupted in-kernel writing
         # phase until that worker has completed; restarting the service is safe.
@@ -243,8 +252,14 @@ def initialize(passthrough=False):
             if index >= 6:
                 # Devices and RGB are independent of the source. The module
                 # continues the remaining phases without unloading open nodes.
+                if experimental_144hz and index != 6:
+                    raise RuntimeError('Experimental cold handoff requires checked phase6, not a later checkpoint')
                 save_checkpoint(index, pending=True)
-                if passthrough:
+                if experimental_144hz:
+                    step('--capture-wait-144hz', capture_error=0, capture_video_registered=1,
+                         led_error=0, led_rgb_complete=1, hdmi_deferred=1,
+                         scaled_capture=1, capture_experimental_144hz=1)
+                elif passthrough:
                     step('--passthrough-video', capture_video_registered=1, passthrough_only=1,
                          led_error=0, led_rgb_complete=1)
                 else:
@@ -274,9 +289,10 @@ def initialize(passthrough=False):
 
 if __name__ == '__main__':
     scaled = len(sys.argv) == 3 and sys.argv[1] == '--scaled'
+    experimental = len(sys.argv) == 3 and sys.argv[1] == '--experimental-144hz'
     passthrough = len(sys.argv) == 3 and sys.argv[1] == '--passthrough'
     handoff = len(sys.argv) == 3 and sys.argv[1] == '--handoff-phase'
-    if os.geteuid() != 0 or (len(sys.argv) != 2 and not handoff and not passthrough and not scaled):
+    if os.geteuid() != 0 or (len(sys.argv) != 2 and not handoff and not passthrough and not scaled and not experimental):
         sys.exit('Use the installed GC573 helper with --start.')
     try:
         import re
@@ -296,7 +312,7 @@ if __name__ == '__main__':
         elif scaled:
             initialize_scaled()
         else:
-            initialize(passthrough=passthrough)
+            initialize(passthrough=passthrough, experimental_144hz=experimental)
     except WaitingForSignal as exc:
         print(f'GC573 startup waiting: {exc} (temporary, exit 75).', file=sys.stderr)
         sys.exit(75)

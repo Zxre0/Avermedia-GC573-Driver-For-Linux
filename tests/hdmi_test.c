@@ -82,6 +82,24 @@ int main(void)
 	assert(!tick(&f, &h) && f.transactions == transactions);
 	h = (struct gc573_hdmi) { .phase = 5 };
 	assert(tick(&f, &h) == -EINVAL && f.transactions == transactions);
-	puts("PASS: deferred HDMI, no-source waits, powered TX preservation, transfer-failure replay guards");
+	{
+		const struct gc573_block_io io = {
+			.ctx=&f,.read=read_reg,.write=write_reg,.wait=wait_read,
+			.wait_write=wait_write,.sleep_ms=sleep_ms,.time_ms=time_ms,
+		};
+		/* Input-only cold preparation stops BEFORE the restricted phase14. */
+		f=activate_baseline(); h=(struct gc573_hdmi){.phase=13};
+		assert(gc573_hdmi_prepare_capture(&io,&h)==1 && h.phase==14);
+		transactions=f.transactions; writes=f.writes;
+		assert(gc573_hdmi_prepare_capture(&io,&h)==1);
+		assert(f.transactions==transactions && f.writes==writes);
+		h=(struct gc573_hdmi){.phase=12,.error=-ETIMEDOUT};
+		assert(gc573_hdmi_prepare_capture(&io,&h)==-ETIMEDOUT);
+		assert(f.transactions==transactions && f.writes==writes);
+		h=(struct gc573_hdmi){.phase=15};
+		assert(gc573_hdmi_prepare_capture(&io,&h)==-EINVAL);
+		assert(f.transactions==transactions);
+	}
+	puts("PASS: deferred HDMI, input-only handoff before phase14, transport failures remain stopped");
 	return 0;
 }

@@ -476,12 +476,12 @@ int gc573_splitter_video_external(const struct gc573_block_io *io,
 /* Resume only a completed output setup whose final link check was pending.
  * Re-measure first: PS5 mode tests may already have changed the source again.
  */
-int gc573_splitter_video_resume(const struct gc573_block_io *io,
+static int video_resume_profile(const struct gc573_block_io *io,
 	struct gc573_splitter_result *identity, struct gc573_splitter_link_result *link,
 	struct gc573_splitter_video_result *r, unsigned int port,
-	const struct gc573_passthrough_edid *sink)
+	const struct gc573_passthrough_edid *sink, unsigned int internal_limit)
 {
-	const struct gc573_passthrough_edid internal = {.max_tmds_khz = 510000, .scdc = 1};
+	const struct gc573_passthrough_edid internal = {.max_tmds_khz = internal_limit, .scdc = 1};
 	struct gc573_splitter_video_result measured;
 	struct video_context c = {.io = io, .r = r, .port = port,
 		.sink = port == 1 ? &internal : sink};
@@ -528,6 +528,14 @@ int gc573_splitter_video_resume(const struct gc573_block_io *io,
 	if (!ret)
 		r->complete = 1;
 	return ret;
+}
+
+int gc573_splitter_video_resume(const struct gc573_block_io *io,
+    struct gc573_splitter_result *identity, struct gc573_splitter_link_result *link,
+    struct gc573_splitter_video_result *r, unsigned int port,
+    const struct gc573_passthrough_edid *sink)
+{
+    return video_resume_profile(io, identity, link, r, port, sink, 510000);
 }
 
 /* TX2 is the newly observed external sink; TX1 must remain untouched.
@@ -588,6 +596,16 @@ int gc573_splitter_passthrough(const struct gc573_block_io *io,
 }
 
 /* Same bounded HDMI 2.0 TX sequence, addressed to the internal receiver. */
+int gc573_splitter_video_internal_profile(const struct gc573_block_io *io,
+    struct gc573_splitter_result *identity, struct gc573_splitter_link_result *link,
+    struct gc573_splitter_video_result *r, unsigned int experimental_144hz)
+{
+    const struct gc573_passthrough_edid sink = {
+        .max_tmds_khz = experimental_144hz ? 600000 : 510000, .scdc = 1};
+    return r->waiting_link ?
+        video_resume_profile(io, identity, link, r, 1, 0, sink.max_tmds_khz) :
+        video_clock(io, identity, link, r, 2, 1, &sink);
+}
 int gc573_splitter_video_internal(const struct gc573_block_io *io,
     struct gc573_splitter_result *identity, struct gc573_splitter_link_result *link,
     struct gc573_splitter_video_result *r)
