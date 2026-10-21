@@ -4,12 +4,13 @@
 set -euo pipefail
 export PATH=/usr/bin:/usr/sbin
 [[ $EUID -eq 0 && $# == 0 ]] || { echo 'Use ./uninstall.sh from your desktop account.' >&2; exit 1; }
-unit=gc573-native-boot.service
-if [[ -e /etc/systemd/system/$unit ]]; then
-    systemctl disable --now "$unit"
-    rm -f -- "/etc/systemd/system/$unit"
-    systemctl daemon-reload
-fi
+for unit in gc573-native-boot.service gc573-native-system.service; do
+    if [[ -e /etc/systemd/system/$unit ]]; then
+        systemctl disable --now "$unit"
+        rm -f -- "/etc/systemd/system/$unit"
+        systemctl daemon-reload
+    fi
+done
 # Serialize against any helper invocation still finishing after service shutdown.
 install -d -o root -g root -m 0700 /run/gc573-codex
 exec 9>/run/gc573-codex/probe.lock
@@ -22,6 +23,7 @@ if [[ -d /sys/module/gc573_native ]]; then
     fi
 fi
 rm -f -- /etc/sudoers.d/gc573-codex /usr/local/sbin/gc573-codex-probe
+rm -rf -- /usr/local/lib/gc573-native
 rm -f -- /run/gc573-codex/startup-*.json /run/gc573-codex/startup-*.tmp
 rm -f -- /run/gc573-codex/probe.lock
 rmdir -- /run/gc573-codex

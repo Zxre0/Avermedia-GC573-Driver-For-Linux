@@ -77,7 +77,9 @@ class InstallationTest(unittest.TestCase):
         self.fake('install', 'mkdir -p -- "${@: -1}"\n')
         self.fake('systemctl', 'echo "systemctl $*" >> "$CALLS"\n')
         self.fake('rmmod', 'echo "rmmod $*" >> "$CALLS"\nexit "${BUSY:-0}"\n')
-        for item in ('etc/systemd/system/gc573-native-boot.service', 'etc/sudoers.d/gc573-codex',
+        for item in ('etc/systemd/system/gc573-native-boot.service',
+                     'etc/systemd/system/gc573-native-system.service',
+                     'usr/local/lib/gc573-native/tools/system-start.sh', 'etc/sudoers.d/gc573-codex',
                      'usr/local/sbin/gc573-codex-probe', 'run/gc573-codex/startup-card.json',
                      'run/gc573-codex/startup-card.tmp', 'run/gc573-native-boot/gc573-native-start.lock'):
             self.put(self.root / item)
@@ -91,13 +93,73 @@ class InstallationTest(unittest.TestCase):
         self.assertTrue((self.root / 'etc/sudoers.d/gc573-codex').exists())
         self.assertTrue((self.root / 'run/gc573-codex/startup-card.json').exists())
         self.assertFalse((self.root / 'etc/systemd/system/gc573-native-boot.service').exists())
+        self.assertFalse((self.root / 'etc/systemd/system/gc573-native-system.service').exists())
         for _ in range(2):
             result = subprocess.run([script], env=self.env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / 'etc/sudoers.d/gc573-codex').exists())
         self.assertFalse((self.root / 'usr/local/sbin/gc573-codex-probe').exists())
         self.assertFalse((self.root / 'run/gc573-codex').exists())
+        self.assertFalse((self.root / 'usr/local/lib/gc573-native').exists())
         self.assertNotIn('rmmod -f', self.calls.read_text())
+
+    def system_boot_installer(self):
+        source = (PROJECT / 'tools/install-system-boot.sh').read_text()
+        source = source.replace('export PATH=/usr/bin:/usr/sbin', 'export PATH="$PATH"')
+        source = source.replace('[[ $EUID -eq 0 ]]', '[[ 1 -eq 1 ]]')
+        for prefix in ('/etc/', '/usr/local/'):
+            source = source.replace(prefix, str(self.root) + prefix)
+        (self.root / 'etc/systemd/system').mkdir(parents=True)
+        (self.root / 'usr/local/lib').mkdir(parents=True)
+        self.fake('systemctl', 'echo "systemctl $*" >> "$CALLS"\n')
+        self.fake('id', 'echo 1000\n')
+        self.fake('python3', 'echo "python3 $*" >> "$CALLS"\n')
+        for name in ('gc573_pci.c', 'gc573_capture.h', 'gc573_native.mod.c', 'Makefile'):
+            self.put(self.project / 'driver' / name)
+        for name in ('load-probe.sh', 'system-start.sh', 'start-capture.py', 'find-card.py'):
+            self.put(self.project / 'tools' / name, executable=True)
+        self.put(self.project / 'tools/build.sh',
+                 '#!/bin/bash\necho "build $0" >> "$CALLS"\nexit "${BUILD_EXIT:-0}"\n', True)
+        self.put(self.project / 'app/gc573_control.py')
+        return self.put(self.project / 'tools/install-system-boot.sh', source, True)
+
+    def test_system_boot_installs_root_copy_without_sudoers_rule(self):
+        script = self.system_boot_installer()
+        env = dict(self.env, SUDO_USER='gamer')
+        result = subprocess.run([script], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        target = self.root / 'usr/local/lib/gc573-native'
+        self.assertTrue((target / 'driver/gc573_pci.c').exists())
+        self.assertFalse((target / 'driver/gc573_native.mod.c').exists())
+        self.assertTrue(os.access(target / 'tools/system-start.sh', os.X_OK))
+        unit = (self.root / 'etc/systemd/system/gc573-native-system.service').read_text()
+        self.assertIn('Environment=GC573_USER=gamer\n', unit)
+        self.assertIn(f'ExecStart={target}/tools/system-start.sh\n', unit)
+        calls = self.calls.read_text()
+        self.assertIn(f'build {self.root}/usr/local/lib/.gc573-native.', calls)
+        self.assertIn('systemctl enable gc573-native-system.service', calls)
+        self.assertFalse((self.root / 'etc/sudoers.d').exists())
+        self.assertEqual(list((self.root / 'usr/local/lib').glob('.gc573-native.*')), [])
+        result = subprocess.run([script, '--remove'], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(target.exists())
+        self.assertFalse((self.root / 'etc/systemd/system/gc573-native-system.service').exists())
+
+    def test_system_boot_build_failure_installs_nothing(self):
+        script = self.system_boot_installer()
+        result = subprocess.run([script], env=dict(self.env, SUDO_USER='gamer', BUILD_EXIT='1'),
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list((self.root / 'usr/local/lib').iterdir()), [])
+        self.assertFalse((self.root / 'etc/systemd/system/gc573-native-system.service').exists())
+
+    def test_system_boot_refuses_alongside_helper_boot_service(self):
+        script = self.system_boot_installer()
+        self.put(self.root / 'etc/systemd/system/gc573-native-boot.service')
+        result = subprocess.run([script], env=dict(self.env, SUDO_USER='gamer'), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('--remove-boot', result.stderr)
+        self.assertEqual(list((self.root / 'usr/local/lib').iterdir()), [])
 
     def test_login_removal_is_idempotent_without_a_user_service(self):
         tools = self.project / 'tools'
