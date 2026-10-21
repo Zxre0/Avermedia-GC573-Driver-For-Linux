@@ -6,7 +6,7 @@ opt-in development convenience for unattended diagnostics.
 `./uninstall.sh` disables startup, unloads the driver and removes the project
 installation, including saved lighting settings (use `--keep-settings` to keep
 them). Shared packages, source and personal recordings are preserved. See the
-[easy setup guide](../README.md#easy-install-and-uninstall). The individual
+[install guide](../README.md#install). The individual
 commands below remain available for manual setup.
 
 From a normal account in the project checkout:
@@ -45,7 +45,7 @@ and restores that user's saved lighting. It uses its own runtime directory and
 video/audio supplementary groups, so a desktop session is not required. Existing
 working capture is preserved. The installer disables the older login unit to
 avoid duplicate startup. A checkout/home directory unavailable before login
-requires the login-only option documented in the README.
+requires the [login-only option](#login-only-startup) below.
 
 Since 0.43.0, startup completes the static receiver/splitter preparation, then
 registers video/audio devices and RGB before waiting for HDMI input. The module
@@ -96,3 +96,53 @@ rm -f ~/.local/bin/gc573-control ~/.local/share/applications/gc573-control.deskt
 
 Removal preserves the checkout, recordings, saved lighting preferences and any
 currently loaded module. It does not reset the card or unload unrelated drivers.
+
+## Startup status
+
+Check the helper-based service with:
+
+```sh
+systemctl is-enabled gc573-native-boot.service
+systemctl status gc573-native-boot.service --no-pager
+journalctl -u gc573-native-boot.service -b --no-pager
+```
+
+`active (exited)` is normal: device registration has finished and the kernel
+driver continues running. **An HDMI source is not required to load the driver.**
+The video device, ALSA audio device and RGB controls remain available while a
+background worker waits for HDMI power/lock. Connect or turn on a supported
+source later; startup continues without unloading those devices. An open video
+queue waits for matching supported input; audio capture requires a valid
+48 kHz stereo PCM signal and may need reopening after the source arrives.
+
+`hdmi_ready=0` with `hdmi_waiting=1` means HDMI setup is waiting; `hdmi_ready=1`
+means setup finished. `hdmi_error` reports hardware/protocol failures separately
+from device registration, and GC573 Control displays that state. Partial-write
+failures stop the worker instead of replaying resets. Restarting the service
+preserves an already registered card, including one waiting for input.
+
+After updating the checkout, rebuild and restart the service:
+
+```sh
+./tools/build.sh
+sudo systemctl restart gc573-native-boot.service
+```
+
+To remove boot startup:
+
+```sh
+./tools/install-startup.sh --remove-boot
+```
+
+## Login-only startup
+
+Use this when the checkout or home directory is only available after login
+(for example an encrypted home unlocked at login). Remove the boot service
+first if installed, then:
+
+```sh
+./tools/install-startup.sh
+systemctl --user start gc573-native.service
+```
+
+If you move the checkout, reinstall the helper, app and selected startup service.

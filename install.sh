@@ -108,5 +108,5 @@ printf 'The driver and RGB controls load without HDMI input; capture starts when
 printf 'Open GC573 Control from your application menu. Connect an active 1080p60 RGB8 SDR HDMI source.\n'
 printf 'For a simple console window to share in Discord, open GC573 Preview with OBS closed.\n'
 printf 'Check initialization: systemctl status gc573-native-system.service --no-pager\n'
-printf 'OBS video/audio setup is in README.md, step 5.\n'
+printf 'OBS video/audio setup is in README.md, under "Using the card".\n'
 printf 'After updating or editing this checkout, rerun ./install.sh --skip-deps to refresh boot startup.\n'
