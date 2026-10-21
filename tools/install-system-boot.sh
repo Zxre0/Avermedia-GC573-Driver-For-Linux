@@ -47,7 +47,7 @@ for file in "$project"/driver/*.[ch]; do
     [[ $file == *.mod.c ]] || install -m 0644 -- "$file" "$staging/driver/"
 done
 install -m 0644 -- "$project/driver/Makefile" "$staging/driver/"
-for file in build.sh load-probe.sh system-start.sh start-capture.py find-card.py; do
+for file in build.sh prepare-module.sh load-probe.sh system-start.sh start-capture.py find-card.py; do
     install -m 0755 -- "$project/tools/$file" "$staging/tools/"
 done
 install -m 0644 -- "$project/app/gc573_control.py" "$staging/app/"
@@ -60,6 +60,7 @@ if [[ -d $target ]]; then
 fi
 mv -- "$staging" "$target"
 rm -rf -- "$target.old"
+"$target/tools/prepare-module.sh" "$target/.build/modules/$(uname -r)/gc573_native.ko" "$(uname -r)"
 
 cat > "$unit_path.tmp" <<EOF
 [Unit]
