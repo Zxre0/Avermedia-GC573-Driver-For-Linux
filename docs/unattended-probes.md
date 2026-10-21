@@ -1,6 +1,8 @@
 # Unattended development and boot startup
 
-`./install.sh` installs dependencies, the app, helper and boot service together.
+`./install.sh` installs dependencies, the app and the root-owned boot service
+(`gc573-native-system.service`), **not** this helper. The helper below is an
+opt-in development convenience for unattended diagnostics.
 `./uninstall.sh` disables startup, unloads the driver and removes the project
 installation, including saved lighting settings (use `--keep-settings` to keep
 them). Shared packages, source and personal recordings are preserved. See the

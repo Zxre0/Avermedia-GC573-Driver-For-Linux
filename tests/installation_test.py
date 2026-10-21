@@ -198,13 +198,16 @@ class InstallationTest(unittest.TestCase):
         self.assertEqual(list((self.root / 'usr/local/lib').iterdir()), [])
         self.assertFalse((self.root / 'etc/systemd/system/gc573-native-system.service').exists())
 
-    def test_system_boot_refuses_alongside_helper_boot_service(self):
+    def test_system_boot_replaces_helper_boot_service(self):
         script = self.system_boot_installer()
-        self.put(self.root / 'etc/systemd/system/gc573-native-boot.service')
+        legacy = self.put(self.root / 'etc/systemd/system/gc573-native-boot.service')
         result = subprocess.run([script], env=dict(self.env, SUDO_USER='gamer'), capture_output=True, text=True)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn('--remove-boot', result.stderr)
-        self.assertEqual(list((self.root / 'usr/local/lib').iterdir()), [])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(legacy.exists())
+        self.assertTrue((self.root / 'etc/systemd/system/gc573-native-system.service').exists())
+        calls = self.calls.read_text()
+        self.assertLess(calls.index('systemctl disable gc573-native-boot.service'),
+                        calls.index('systemctl enable gc573-native-system.service'))
 
     def test_login_removal_is_idempotent_without_a_user_service(self):
         tools = self.project / 'tools'
@@ -219,16 +222,20 @@ class InstallationTest(unittest.TestCase):
     def installer(self):
         source = (PROJECT / 'install.sh').read_text().replace('$EUID -ne 0', '1 -eq 1')
         source = source.replace('/run/systemd/system', str(self.root))
+        for prefix in ('/usr/local/', '/etc/'):
+            source = source.replace(prefix, str(self.root) + prefix)
         self.fake('python3', 'echo "python3 $*" >> "$CALLS"\n')
         self.fake('sudo', 'echo "sudo $*" >> "$CALLS"\n"$@"\n')
-        for tool in ('build.sh', 'enable-unattended-probes.sh', 'run-probe.sh', 'install-app.sh', 'install-startup.sh'):
+        self.fake('systemctl', 'echo "systemctl $*" >> "$CALLS"\n')
+        for tool in ('build.sh', 'enable-unattended-probes.sh', 'install-system-boot.sh',
+                     'install-app.sh', 'install-startup.sh'):
             body = '#!/bin/bash\necho "' + tool + ' $*" >> "$CALLS"\n'
             if tool == 'build.sh':
                 body += 'exit "${BUILD_EXIT:-0}"\n'
             self.put(self.project / 'tools' / tool, body, True)
         return self.put(self.project / 'install.sh', source, True)
 
-    def test_build_failure_never_installs_privileged_helper_or_startup(self):
+    def test_build_failure_never_installs_startup(self):
         script = self.installer()
         result = subprocess.run([script, '--skip-deps'], env=dict(self.env, BUILD_EXIT='1'), capture_output=True)
         self.assertEqual(result.returncode, 1)
@@ -239,8 +246,22 @@ class InstallationTest(unittest.TestCase):
         result = subprocess.run([script, '--skip-deps'], env=self.env, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls.read_text()
-        self.assertLess(calls.index('build.sh'), calls.index('enable-unattended-probes.sh'))
-        self.assertLess(calls.index('install-app.sh'), calls.index('install-startup.sh --boot'))
+        self.assertLess(calls.index('build.sh'), calls.index('sudo '))
+        self.assertLess(calls.index('install-app.sh'), calls.index('install-system-boot.sh'))
+        self.assertLess(calls.index('install-system-boot.sh'),
+                        calls.index('systemctl start --no-block gc573-native-system.service'))
+        self.assertIn('install-startup.sh --remove\n', calls)
+        self.assertNotIn('enable-unattended-probes.sh', calls)
+        self.assertNotIn('--boot', calls)
+
+    def test_install_retires_password_free_helper(self):
+        script = self.installer()
+        self.put(self.root / 'etc/sudoers.d/gc573-codex')
+        result = subprocess.run([script, '--skip-deps'], env=self.env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls.read_text()
+        self.assertIn('sudo ' + str(self.project / 'tools/enable-unattended-probes.sh') + ' --remove', calls)
+        self.assertLess(calls.index('install-system-boot.sh'), calls.index('enable-unattended-probes.sh --remove'))
 
     def test_arch_dependencies_select_running_kernel_variant(self):
         script = self.installer()

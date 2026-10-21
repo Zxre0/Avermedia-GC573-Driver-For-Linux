@@ -32,11 +32,6 @@ account=${SUDO_USER:-}
     echo 'Run from your normal account through sudo.' >&2; exit 1;
 }
 [[ $(id -u "$account") -gt 0 ]]
-if [[ -e /etc/systemd/system/gc573-native-boot.service ]]; then
-    echo 'The helper-based gc573-native-boot.service is installed.' >&2
-    echo 'Remove it first with: tools/install-startup.sh --remove-boot' >&2
-    exit 1
-fi
 
 # Copy only what boot startup needs, then build it as root from the copy.
 staging=$(mktemp -d /usr/local/lib/.gc573-native.XXXXXXXX)
@@ -82,6 +77,13 @@ RestartSec=10s
 WantedBy=multi-user.target
 EOF
 chmod 0644 "$unit_path.tmp"
+# Replace the older helper-based boot service so the card starts only once.
+legacy=gc573-native-boot.service
+if [[ -e /etc/systemd/system/$legacy ]]; then
+    systemctl disable "$legacy"
+    rm -f -- "/etc/systemd/system/$legacy"
+    echo "Replaced the helper-based $legacy."
+fi
 mv -f -- "$unit_path.tmp" "$unit_path"
 systemctl daemon-reload
 systemctl enable "$unit"
