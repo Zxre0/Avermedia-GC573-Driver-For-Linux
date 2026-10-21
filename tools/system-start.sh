@@ -48,6 +48,8 @@ exec 9>/run/gc573-codex/probe.lock
 flock -w 30 9 || exit 75
 # Rebuild for the running kernel after updates; the source is root-owned.
 "$project_dir/tools/build.sh" >/dev/null
+"$project_dir/tools/prepare-module.sh" \
+    "$project_dir/.build/modules/$(uname -r)/gc573_native.ko" "$(uname -r)"
 cd /
 env -i PATH=/usr/bin:/usr/sbin LANG=C \
     /usr/bin/bash --noprofile --norc "$project_dir/tools/load-probe.sh" "$start"

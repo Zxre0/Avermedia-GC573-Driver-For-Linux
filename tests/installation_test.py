@@ -118,6 +118,8 @@ class InstallationTest(unittest.TestCase):
             self.put(self.project / 'driver' / name)
         for name in ('load-probe.sh', 'system-start.sh', 'start-capture.py', 'find-card.py'):
             self.put(self.project / 'tools' / name, executable=True)
+        self.put(self.project / 'tools/prepare-module.sh',
+                 '#!/bin/bash\necho "prepare $*" >> "$CALLS"\n', True)
         self.put(self.project / 'tools/build.sh',
                  '#!/bin/bash\necho "build $0" >> "$CALLS"\nexit "${BUILD_EXIT:-0}"\n', True)
         self.put(self.project / 'app/gc573_control.py')
@@ -138,12 +140,55 @@ class InstallationTest(unittest.TestCase):
         calls = self.calls.read_text()
         self.assertIn(f'build {self.root}/usr/local/lib/.gc573-native.', calls)
         self.assertIn('systemctl enable gc573-native-system.service', calls)
+        self.assertRegex(calls, rf'prepare {target}/\.build/modules/(\S+)/gc573_native\.ko \1\n')
         self.assertFalse((self.root / 'etc/sudoers.d').exists())
         self.assertEqual(list((self.root / 'usr/local/lib').glob('.gc573-native.*')), [])
         result = subprocess.run([script, '--remove'], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(target.exists())
         self.assertFalse((self.root / 'etc/systemd/system/gc573-native-system.service').exists())
+
+    def module_preparer(self, sig_enforce='N', lockdown='[none] integrity confidentiality', key=True):
+        source = (PROJECT / 'tools/prepare-module.sh').read_text()
+        source = source.replace('export PATH=/usr/bin:/usr/sbin', 'export PATH="$PATH"')
+        for prefix in ('/lib/modules/', '/etc/pki/', '/sys/'):
+            source = source.replace(prefix, str(self.root) + prefix)
+        build = self.root / 'lib/modules/7.0-test/build'
+        self.put(build / '.config', 'CONFIG_MODULE_SIG=y\nCONFIG_MODULE_SIG_HASH="sha512"\n')
+        self.put(build / 'scripts/sign-file', '#!/bin/bash\necho "sign-file $*" >> "$CALLS"\n', True)
+        if key:
+            self.put(self.root / 'etc/pki/akmods/private/private_key.priv')
+            self.put(self.root / 'etc/pki/akmods/certs/public_key.der')
+        self.put(self.root / 'sys/module/module/parameters/sig_enforce', sig_enforce + '\n')
+        self.put(self.root / 'sys/kernel/security/lockdown', lockdown + '\n')
+        self.fake('selinuxenabled', 'exit "${SELINUX_EXIT:-1}"\n')
+        self.fake('chcon', 'echo "chcon $*" >> "$CALLS"\n')
+        return self.put(self.root / 'prepare-module.sh', source, True)
+
+    def test_module_is_signed_with_akmods_key_and_labelled_for_selinux(self):
+        script = self.module_preparer()
+        result = subprocess.run([script, '/m/gc573_native.ko', '7.0-test'],
+                                env=dict(self.env, SELINUX_EXIT='0'), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls.read_text().splitlines(), [
+            f'sign-file sha512 {self.root}/etc/pki/akmods/private/private_key.priv '
+            f'{self.root}/etc/pki/akmods/certs/public_key.der /m/gc573_native.ko',
+            'chcon -t modules_object_t -- /m/gc573_native.ko'])
+
+    def test_unsigned_module_is_allowed_without_secure_boot_or_selinux(self):
+        script = self.module_preparer(key=False)
+        result = subprocess.run([script, '/m/gc573_native.ko', '7.0-test'], env=self.env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.calls.exists())
+
+    def test_secure_boot_without_key_stops_with_enrollment_hint(self):
+        for enforce, lockdown in (('Y', '[none] integrity'), ('N', 'none [integrity] confidentiality')):
+            script = self.module_preparer(enforce, lockdown, key=False)
+            result = subprocess.run([script, '/m/gc573_native.ko', '7.0-test'], env=self.env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn('mokutil --import', result.stderr)
 
     def test_system_boot_build_failure_installs_nothing(self):
         script = self.system_boot_installer()

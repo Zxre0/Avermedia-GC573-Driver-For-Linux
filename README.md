@@ -784,8 +784,21 @@ journalctl -u gc573-native-system.service -b --no-pager
 sudo ./tools/install-system-boot.sh --remove
 ```
 
-`./uninstall.sh` also removes this service and the root-owned copy. Secure Boot
-signing is still not automated; see below.
+`./uninstall.sh` also removes this service and the root-owned copy.
+
+After every build the service signs the module and, on SELinux systems such as
+Fedora, labels it `modules_object_t`; without that label SELinux refuses
+`insmod` from the boot service with `Permission denied`. For **Secure Boot** it
+signs with the akmods Machine Owner Key in `/etc/pki/akmods`, the key Fedora
+already uses for akmods drivers such as NVIDIA. If no such key exists and the
+kernel enforces signatures, startup stops with instructions. To create and
+enroll one (you confirm the import in the blue MOK screen on the next boot):
+
+```sh
+sudo dnf install akmods mokutil
+sudo kmodgenca -a
+sudo mokutil --import /etc/pki/akmods/certs/public_key.der
+```
 
 ### E. Kernel updates and loading errors
 
