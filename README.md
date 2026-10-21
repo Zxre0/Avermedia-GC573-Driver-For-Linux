@@ -530,6 +530,10 @@ in OBS. For a stable video-device path, use the card's entry in
 
 ### 6. Load automatically after a restart
 
+To load at boot **without** a password-free sudo rule, use the
+[root-owned boot service](#boot-startup-from-a-root-owned-copy) instead of the
+helper-based service below.
+
 Install the system boot service once, from your normal account in the checkout:
 
 ```sh
@@ -736,6 +740,40 @@ and the driver waits for HDMI in the background. For automatic loading after reb
 the dependencies in section A, `./install.sh --skip-deps` performs sections C/D
 and boot-service installation together. Debian/Ubuntu can also use `./install.sh`
 to install dependencies automatically; Fedora/openSUSE need `--skip-deps`.
+
+### Boot startup from a root-owned copy
+
+This loads the driver automatically at every boot without installing the
+password-free development helper. Run once from your normal account:
+
+```sh
+sudo ./tools/install-system-boot.sh
+sudo systemctl start gc573-native-system.service   # optional: start now
+```
+
+The installer copies the driver source, startup scripts and RGB restore into
+root-owned `/usr/local/lib/gc573-native`, builds the module there and enables
+`gc573-native-system.service`. At boot the service rebuilds for the running
+kernel if needed, loads the driver in your saved mode (`tools/set-mode.py`;
+`capture` by default), then restores your saved RGB settings as your account.
+It refuses to run if that copy becomes writable by anyone but root, and it
+never executes or loads files from your checkout. Starting it while the card
+is already loaded preserves the running device.
+
+Because the boot copy is separate, **rerun `sudo ./tools/install-system-boot.sh`
+after pulling updates or editing the source**; otherwise boot keeps loading the
+previous copy. It cannot be installed alongside the helper-based
+`gc573-native-boot.service` (remove that first with
+`./tools/install-startup.sh --remove-boot`). Check or remove it with:
+
+```sh
+systemctl status gc573-native-system.service --no-pager
+journalctl -u gc573-native-system.service -b --no-pager
+sudo ./tools/install-system-boot.sh --remove
+```
+
+`./uninstall.sh` also removes this service and the root-owned copy. Secure Boot
+signing is still not automated; see below.
 
 ### E. Kernel updates and loading errors
 
