@@ -1,5 +1,27 @@
 # Validation
 
+## Test environment
+
+The hardware test system runs **CachyOS Linux, rolling release, x86_64**, with
+OBS Studio **32.2.2**, Python **3.14.7**, PyGObject **3.56.3**, GTK **4.22.5**
+and v4l-utils **1.32.0**. The main kernel build uses Clang/LLVM **22.1.8**.
+These are recorded versions, not requirements.
+
+| Kernel release | Validation |
+| --- | --- |
+| `7.2.6-1-cachyos` | Running kernel: GC573 hardware capture, OBS, ALSA and RGB controls tested |
+| `7.2.3-1-cachyos` | Module compilation tested; no runtime claim for this kernel |
+| `6.18.52-1-cachyos-lts` | Module compilation tested with GCC; no runtime claim for this kernel |
+| `7.2.11-200.fc44.x86_64` (Fedora 44) | Tested and working after manual install; module built with GCC 16.2.1 at commit `286b4b9` |
+
+Ubuntu CI builds against `6.8.0-142-generic` headers and runs the
+hardware-independent tests; that is not hardware validation.
+
+The PCIe link matters for higher modes: the card is specified for Gen 2 ×4 and
+the test PC negotiates Gen 2 ×4 (earlier 1080p60 tests used ×2). Native
+1440p120 BGR24 transfers about 1.33 GB/s of video payload; the driver checks the
+narrowest upstream link and keeps the 1080p60 limit on Gen2 ×2.
+
 ## Hardware verified
 
 On one GC573 with FPGA `20201015`, board `57300102`, CachyOS 7.2.6:

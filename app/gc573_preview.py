@@ -90,7 +90,7 @@ def run_gui(args):
                                  'audioconvert', 'audioresample', 'volume')
                if not Gst.ElementFactory.find(name)]
     if missing:
-        raise RuntimeError('Missing GStreamer plugins: ' + ', '.join(missing) + '. See README preview dependencies.')
+        raise RuntimeError('Missing GStreamer plugins: ' + ', '.join(missing) + '. Rerun ./install.sh or see the README manual install dependencies.')
 
     class Preview(Gtk.Application):
         def __init__(self):
