@@ -335,15 +335,17 @@ the package manager show its normal confirmation prompts. It installs the
 build tools, matching kernel headers, GTK/Python dependencies, video/audio
 utilities and OBS; builds the driver; installs **GC573 Control** in your app
 menu; and enables automatic loading at boot with saved RGB restoration.
-It uses pacman on Arch/CachyOS and apt on Debian/Ubuntu. Hardware testing remains
-limited to CachyOS; Ubuntu compilation in CI is not a hardware test.
+It uses pacman on Arch/CachyOS, apt on Debian/Ubuntu and dnf on Fedora. Hardware
+testing covers CachyOS and Fedora 44; Ubuntu compilation in CI is not a hardware test.
 
 You need administrator access through sudo, a running systemd system, internet
 access for missing packages, and exactly one GC573 for automatic discovery.
 Keep your distribution updated. If repository headers no longer match your
 running kernel, update/reboot and rerun the installer. With Secure Boot, the boot
 service signs the module with an enrolled akmods key
-([details](#boot-startup-from-a-root-owned-copy)). A checkout/home directory unlocked only at login needs the
+([details](#boot-startup-from-a-root-owned-copy)). On Fedora with Secure Boot and
+no akmods key yet, the installer creates one and asks for a one-time password;
+reboot afterwards and confirm **Enroll MOK** with that password in the blue screen. A checkout/home directory unlocked only at login needs the
 [manual login-only setup](#6-load-automatically-after-a-restart).
 
 If dependencies are already installed, or you use another distribution, see the
@@ -755,8 +757,8 @@ You can also run these commands without a source: devices/RGB register first,
 and the driver waits for HDMI in the background. For automatic loading after reboot, follow
 [step 6](#6-load-automatically-after-a-restart). Alternatively, after installing
 the dependencies in section A, `./install.sh --skip-deps` performs sections C/D
-and boot-service installation together. Debian/Ubuntu can also use `./install.sh`
-to install dependencies automatically; Fedora/openSUSE need `--skip-deps`.
+and boot-service installation together. Debian/Ubuntu and Fedora can also use
+`./install.sh` to install dependencies automatically; openSUSE needs `--skip-deps`.
 
 ### Boot startup from a root-owned copy
 
