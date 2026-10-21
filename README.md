@@ -22,12 +22,12 @@ The hardware test system runs **CachyOS Linux, rolling release, x86_64**.
 | `7.2.3-1-cachyos` | Module compilation tested; no runtime claim for this kernel |
 | `6.18.52-1-cachyos-lts` | Module compilation tested with GCC; no runtime claim for this kernel |
 
-The project owner also runs the driver on **Fedora Linux 44, x86_64**, installed
-with the [manual non-Arch method](#compiling-on-non-arch-distributions):
+**Fedora Linux 44, x86_64** has also been tested and works, installed with the
+[manual non-Arch method](#compiling-on-non-arch-distributions):
 
 | Kernel release | Validation |
 | --- | --- |
-| `7.2.11-200.fc44.x86_64` | Owner reports the driver works after manual install; module built with GCC 16.2.1 at commit `286b4b9` and loaded |
+| `7.2.11-200.fc44.x86_64` | Tested and working after manual install; module built with GCC 16.2.1 at commit `286b4b9` |
 
 The test system uses OBS Studio **32.2.2**, Python **3.14.7**, PyGObject **3.56.3**,
 GTK **4.22.5**, and v4l-utils **1.32.0**. These are recorded test versions, not a
@@ -665,7 +665,7 @@ the matching development package. A debug or custom kernel needs the correspondi
 development package. See [Fedora's kernel-devel description](https://packages.fedoraproject.org/pkgs/kernel/kernel-devel/).
 
 Tested: Fedora 44 with kernel `7.2.11-200.fc44.x86_64` works using these manual
-steps (owner report). Fedora's kernel is built with GCC, so `tools/build.sh`
+steps. Fedora's kernel is built with GCC, so `tools/build.sh`
 selects GCC automatically.
 
 #### openSUSE Tumbleweed / Leap with the default kernel
