@@ -73,10 +73,42 @@ int main(int argc, char **argv)
 	assert(!gc573_passthrough_edid(bad, 256, &out) && out.max_tmds_khz == 340000 &&
 	       !out.video_codes);
 	assert(gc573_passthrough_edid(e, 128, &out) == -EINVAL);
-	for (i = 0; i < 256; i++) {
-		memcpy(bad, e, 512);
-		bad[i] ^= 0xff;
-		(void)gc573_passthrough_edid(bad, 256, &out);
+	/* Mutate each byte, then repair that block's checksum so the CTA and
+	 * detailed-timing parsers see the malformed data instead of -EBADMSG.
+	 */
+	{
+		static const unsigned char masks[] = {0xff, 0x80, 0x7f, 0x01, 0x1f, 0xe0};
+		unsigned int m, variant, parsed = 0, cases = 0;
+		int ret;
+
+		for (i = 0; i < 256; i++) {
+			if (i % 128 == 127)
+				continue;
+			for (m = 0; m < sizeof(masks); m++) {
+				for (variant = 0; variant < 2; variant++) {
+					memcpy(bad, e, 512);
+					bad[i] ^= masks[m];
+					fix(bad + i / 128 * 128);
+					ret = variant ? gc573_scaled_edid(bad, 256, &out) :
+						gc573_passthrough_edid(bad, 256, &out);
+					assert(!ret || ret == -EINVAL || ret == -EBADMSG ||
+					       ret == -EOPNOTSUPP);
+					if (!ret) {
+						unsigned int b, j, sum;
+
+						for (b = 0; b < 2; b++) {
+							for (j = 0, sum = 0; j < 128; j++)
+								sum += out.data[b * 128 + j];
+							assert(!(sum & 255));
+						}
+					}
+					cases++;
+					parsed += ret != -EBADMSG;
+				}
+			}
+		}
+		/* Most single-byte changes must get past checksum validation. */
+		assert(parsed * 2 > cases);
 	}
 	puts("PASS: bounded display EDID intersection, 4K60, SCDC rate limits, "
 	     "malformed data and unsupported-mode filtering");

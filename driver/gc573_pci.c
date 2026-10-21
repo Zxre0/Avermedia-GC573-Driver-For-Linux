@@ -1559,7 +1559,8 @@ static ssize_t captured_frame_read(struct file *file, struct kobject *kobj,
 
 	return gc573_capture_read(card->capture, buf, off, count);
 }
-static GC573_SYSFS_BIN_CONST BIN_ATTR_RO(captured_frame, GC573_FRAME_BYTES);
+/* Raw HDMI frame contents: readable by root only. */
+static GC573_SYSFS_BIN_CONST BIN_ATTR_ADMIN_RO(captured_frame, GC573_FRAME_BYTES);
 static GC573_SYSFS_BIN_CONST struct bin_attribute *GC573_SYSFS_BIN_CONST gc573_bin_attrs[] = {
 	&bin_attr_captured_frame, NULL,
 };
@@ -1866,6 +1867,15 @@ static int gc573_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			card->passthrough_error = gc573_splitter_passthrough(&io, &card->passthrough);
 		card->capture = gc573_capture_create(pdev, card->bar, capture_video,
 			experimental_144hz, &io);
+		/* Diagnostic capture_once errors stay readable in bringup_status;
+		 * a stream device that failed to register must not stay bound.
+		 */
+		if (!card->capture || (capture_video && !gc573_capture_registered(card->capture))) {
+			ret = gc573_capture_error(card->capture);
+			dev_err(&pdev->dev, "V4L2 capture setup failed: %d\n", ret);
+			gc573_capture_destroy(card->capture);
+			goto unmap;
+		}
 		if ((hdmi_start_phase || passthrough_only || scaled_capture) && gc573_capture_registered(card->capture)) {
 			card->hdmi.phase = hdmi_start_phase;
 			card->hdmi_io = io;
@@ -1878,6 +1888,8 @@ static int gc573_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		 capture_video ? "V4L2 capture" : "PCI diagnostics", read_count);
 	return 0;
 
+unmap:
+	pci_iounmap(pdev, card->bar);
 release:
 	pci_release_region(pdev, 0);
 disable:
@@ -1889,13 +1901,21 @@ static void gc573_remove(struct pci_dev *pdev)
 {
 	struct gc573_device *card = pci_get_drvdata(pdev);
 
-	if (capture_once || capture_video)
+	if (capture_once || capture_video) {
 		cancel_delayed_work_sync(&card->hdmi_work);
+		/* Refuse new audio prepares before the devices go away. */
+		smp_store_release(&card->hdmi_ready, false);
+	}
+	/* Stop V4L2/ALSA users and DMA before the I2C restore sequence. */
+	gc573_capture_destroy(card->capture);
 	if ((passthrough_only || scaled_capture) && card->external.prior_valid) {
-		int ret = gc573_passthrough_restore(&card->hdmi_io, &card->external);
+		int ret;
+
+		mutex_lock(&card->control_mutex);
+		ret = gc573_passthrough_restore(&card->hdmi_io, &card->external);
+		mutex_unlock(&card->control_mutex);
 		if (ret) dev_warn(&pdev->dev, "HDMI profile restoration stopped: %d\n", ret);
 	}
-	gc573_capture_destroy(card->capture);
 	pci_iounmap(pdev, card->bar);
 	pci_release_region(pdev, 0);
 	pci_disable_device(pdev);
@@ -1919,4 +1939,4 @@ module_pci_driver(gc573_driver);
 MODULE_DESCRIPTION("Original GC573 native HDMI capture and diagnostics");
 MODULE_AUTHOR("GC573 native development");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.46.4");
+MODULE_VERSION("0.46.5");

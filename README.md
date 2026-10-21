@@ -6,7 +6,7 @@ control app, developed through hardware testing and research of AVerMedia's
 official driver protocol. It does not install or link a community driver or
 require a proprietary runtime binary.
 
-**Version: 0.46.4 · Status: experimental · License: GPL-2.0-only**
+**Version: 0.46.5 · Status: experimental · License: GPL-2.0-only**
 
 Native **1080p60 capture works in OBS**. The driver also exposes HDMI audio through
 ALSA, RGB lighting controls, and live incoming resolution/frame-rate information.
@@ -22,6 +22,13 @@ The hardware test system runs **CachyOS Linux, rolling release, x86_64**.
 | `7.2.3-1-cachyos` | Module compilation tested; no runtime claim for this kernel |
 | `6.18.52-1-cachyos-lts` | Module compilation tested with GCC; no runtime claim for this kernel |
 
+**Fedora Linux 44, x86_64** has also been tested and works, installed with the
+[manual non-Arch method](#compiling-on-non-arch-distributions):
+
+| Kernel release | Validation |
+| --- | --- |
+| `7.2.11-200.fc44.x86_64` | Tested and working after manual install; module built with GCC 16.2.1 at commit `286b4b9` |
+
 The test system uses OBS Studio **32.2.2**, Python **3.14.7**, PyGObject **3.56.3**,
 GTK **4.22.5**, and v4l-utils **1.32.0**. These are recorded test versions, not a
 requirement to downgrade or pin those packages. The main kernel build uses
@@ -29,7 +36,7 @@ Clang/LLVM **22.1.8**; the build script selects Clang or GCC from the kernel con
 
 GitHub Actions is configured to build with Ubuntu distribution headers and run
 hardware-independent tests. That is not a claim of hardware validation on Ubuntu.
-Other distributions and board revisions still need testing.
+Other distributions (besides CachyOS and Fedora 44) and board revisions still need testing.
 
 ## Hardware capabilities versus current driver support
 
@@ -617,7 +624,8 @@ loading after reboot with this fix. A full power-off/power-on test remains separ
 
 These instructions cover conventional **Debian/Ubuntu, Fedora and openSUSE**
 installations on an x86_64 PC. Compilation has passed in Ubuntu CI with
-`6.8.0-142-generic` headers; hardware capture has only been tested on CachyOS.
+`6.8.0-142-generic` headers; hardware use has been tested on CachyOS and, with
+this manual method, on Fedora 44 (`7.2.11-200.fc44.x86_64`).
 The commands below do not establish compatibility with every distro/kernel
 release. Older kernels and vendor-patched kernels may need code changes.
 
@@ -659,6 +667,10 @@ Fedora's matching **`kernel-devel`** package supplies the module build tree;
 available in your enabled repositories, update the kernel, reboot, and install
 the matching development package. A debug or custom kernel needs the corresponding
 development package. See [Fedora's kernel-devel description](https://packages.fedoraproject.org/pkgs/kernel/kernel-devel/).
+
+Tested: Fedora 44 with kernel `7.2.11-200.fc44.x86_64` works using these manual
+steps. Fedora's kernel is built with GCC, so `tools/build.sh`
+selects GCC automatically.
 
 #### openSUSE Tumbleweed / Leap with the default kernel
 

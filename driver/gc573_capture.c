@@ -10,6 +10,7 @@
 #include <linux/interrupt.h>
 #include <linux/completion.h>
 #include <linux/kthread.h>
+#include <linux/sched/task.h>
 #include <linux/workqueue.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -734,7 +735,7 @@ static int cap_start_streaming(struct vb2_queue *q, unsigned int count)
 			return ret;
 		}
 	}
-	c->thread = kthread_run(cap_worker, c, "gc573-capture");
+	c->thread = kthread_create(cap_worker, c, "gc573-capture");
 	if (IS_ERR(c->thread)) {
 		int ret = PTR_ERR(c->thread);
 
@@ -743,6 +744,11 @@ static int cap_start_streaming(struct vb2_queue *q, unsigned int count)
 		cap_return_buffers(c, VB2_BUF_STATE_QUEUED);
 		return ret;
 	}
+	/* The worker exits on its own after a capture error; keep its task
+	 * alive until cap_stop_streaming() has called kthread_stop().
+	 */
+	get_task_struct(c->thread);
+	wake_up_process(c->thread);
 	return 0;
 }
 
@@ -758,6 +764,7 @@ static void cap_stop_streaming(struct vb2_queue *q)
 		complete_all(&c->ring_done[slot]);
 	if (c->thread) {
 		kthread_stop(c->thread);
+		put_task_struct(c->thread);
 		c->thread = NULL;
 	}
 	cap_return_buffers(c, VB2_BUF_STATE_ERROR);
@@ -1104,6 +1111,11 @@ struct gc573_capture *gc573_capture_create(struct pci_dev *pdev, void __iomem *b
 bool gc573_capture_registered(struct gc573_capture *c)
 {
 	return c && c->registered && !c->error;
+}
+
+int gc573_capture_error(struct gc573_capture *c)
+{
+	return c ? c->error : -ENOMEM;
 }
 
 void gc573_capture_destroy(struct gc573_capture *c)
