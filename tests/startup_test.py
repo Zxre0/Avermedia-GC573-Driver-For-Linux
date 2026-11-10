@@ -42,6 +42,20 @@ class StartupTest(TestCase):
                 startup.initialize_scaled()
             step.assert_not_called()
 
+    def test_reload_needed_matches_the_preserve_checks(self):
+        capture = dict(READY, hdmi_ready='1')
+        self.assertFalse(startup.reload_needed('capture', {}))
+        self.assertFalse(startup.reload_needed('capture', capture))
+        # Scaled mode reloads once the first HDMI setup is ready, not before.
+        self.assertTrue(startup.reload_needed('scaled', capture))
+        self.assertFalse(startup.reload_needed('scaled', dict(capture, hdmi_ready='0')))
+        self.assertFalse(startup.reload_needed('scaled', dict(capture, scaled_capture='1')))
+        self.assertTrue(startup.reload_needed('capture', dict(capture, scaled_capture='1')))
+        self.assertTrue(startup.reload_needed('passthrough', capture))
+        self.assertFalse(startup.reload_needed('passthrough', dict(capture, passthrough_only='1')))
+        # A capture device that is not ready gets checked startup steps, which reload.
+        self.assertTrue(startup.reload_needed('capture', dict(capture, led_error='1')))
+
     def test_existing_stream_is_preserved(self):
         with mock.patch.object(startup, 'STATUS') as status, mock.patch.object(startup, 'step') as step:
             status.exists.return_value = True

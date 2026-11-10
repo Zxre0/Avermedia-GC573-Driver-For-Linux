@@ -42,7 +42,7 @@ for file in "$project"/driver/*.[ch]; do
     [[ $file == *.mod.c ]] || install -m 0644 -- "$file" "$staging/driver/"
 done
 install -m 0644 -- "$project/driver/Makefile" "$staging/driver/"
-for file in build.sh prepare-module.sh load-probe.sh system-start.sh start-capture.py find-card.py; do
+for file in build.sh prepare-module.sh load-probe.sh system-start.sh card-holders.sh start-capture.py find-card.py; do
     install -m 0755 -- "$project/tools/$file" "$staging/tools/"
 done
 install -m 0644 -- "$project/app/gc573_control.py" "$staging/app/"
