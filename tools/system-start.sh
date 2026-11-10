@@ -50,9 +50,25 @@ flock -w 30 9 || exit 75
 "$project_dir/tools/build.sh" >/dev/null
 "$project_dir/tools/prepare-module.sh" \
     "$project_dir/.build/modules/$(uname -r)/gc573_native.ko" "$(uname -r)"
+# Fedora's alsa-state daemon (alsactl rdaemon) keeps every sound card's
+# control device open, so a mode change could not unload the driver.
+# Pause it around the reload; it saves and restores mixer state itself.
+alsa_paused=
+resume_alsa() {
+    if [[ -n $alsa_paused ]]; then
+        alsa_paused=
+        systemctl start alsa-state.service ||
+            echo 'Could not restart alsa-state.service.' >&2
+    fi
+}
+trap resume_alsa EXIT
+if [[ -d /sys/module/gc573_native ]] && systemctl is-active --quiet alsa-state.service; then
+    systemctl stop alsa-state.service && alsa_paused=1
+fi
 cd /
 env -i PATH=/usr/bin:/usr/sbin LANG=C \
     /usr/bin/bash --noprofile --norc "$project_dir/tools/load-probe.sh" "$start"
+resume_alsa
 exec 9>&-
 if [[ -n $home ]]; then
     as_user python3 -I "$project_dir/app/gc573_control.py" --restore ||

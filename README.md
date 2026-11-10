@@ -775,7 +775,10 @@ kernel if needed, loads the driver in your saved mode (`tools/set-mode.py`;
 `capture` by default), then restores your saved RGB settings as your account.
 It refuses to run if that copy becomes writable by anyone but root, and it
 never executes or loads files from your checkout. Starting it while the card
-is already loaded preserves the running device.
+is already loaded preserves the running device. When a mode change has to
+reload the driver, the service briefly stops `alsa-state.service` and restarts
+it afterwards, because Fedora's `alsactl` daemon keeps every sound card open
+and would otherwise block the unload (`Module gc573_native is in use`).
 
 Because the boot copy is separate, **rerun `sudo ./tools/install-system-boot.sh`
 after pulling updates or editing the source**; otherwise boot keeps loading the
