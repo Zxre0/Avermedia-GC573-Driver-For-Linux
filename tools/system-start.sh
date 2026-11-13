@@ -50,9 +50,20 @@ flock -w 30 9 || exit 75
 "$project_dir/tools/build.sh" >/dev/null
 "$project_dir/tools/prepare-module.sh" \
     "$project_dir/.build/modules/$(uname -r)/gc573_native.ko" "$(uname -r)"
+# A mode change unloads the driver, which the desktop's audio services block.
+. "$project_dir/tools/card-holders.sh"
+trap resume_card_holders EXIT
+for bound in /sys/bus/pci/drivers/gc573_native/0000:*; do
+    [[ -e $bound ]] || continue
+    if /usr/bin/python3 -I "$project_dir/tools/start-capture.py" \
+            "--reload-needed=$mode" "${bound##*/}"; then
+        release_card "${bound##*/}" || exit
+    fi
+done
 cd /
 env -i PATH=/usr/bin:/usr/sbin LANG=C \
     /usr/bin/bash --noprofile --norc "$project_dir/tools/load-probe.sh" "$start"
+resume_card_holders
 exec 9>&-
 if [[ -n $home ]]; then
     as_user python3 -I "$project_dir/app/gc573_control.py" --restore ||

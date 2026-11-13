@@ -116,7 +116,7 @@ class InstallationTest(unittest.TestCase):
         self.fake('python3', 'echo "python3 $*" >> "$CALLS"\n')
         for name in ('gc573_pci.c', 'gc573_capture.h', 'gc573_native.mod.c', 'Makefile'):
             self.put(self.project / 'driver' / name)
-        for name in ('load-probe.sh', 'system-start.sh', 'start-capture.py', 'find-card.py'):
+        for name in ('load-probe.sh', 'system-start.sh', 'card-holders.sh', 'start-capture.py', 'find-card.py'):
             self.put(self.project / 'tools' / name, executable=True)
         self.put(self.project / 'tools/prepare-module.sh',
                  '#!/bin/bash\necho "prepare $*" >> "$CALLS"\n', True)
@@ -134,7 +134,8 @@ class InstallationTest(unittest.TestCase):
         self.assertTrue((target / 'driver/gc573_pci.c').exists())
         self.assertFalse((target / 'driver/gc573_native.mod.c').exists())
         self.assertTrue(os.access(target / 'tools/system-start.sh', os.X_OK))
-        unit = (self.root / 'etc/systemd/system/gc573-native-system.service').read_text()
+        self.assertTrue((target / 'tools/card-holders.sh').exists())
+        unit =(self.root / 'etc/systemd/system/gc573-native-system.service').read_text()
         self.assertIn('Environment=GC573_USER=gamer\n', unit)
         self.assertIn(f'ExecStart={target}/tools/system-start.sh\n', unit)
         calls = self.calls.read_text()
@@ -189,6 +190,52 @@ class InstallationTest(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 1)
             self.assertIn('mokutil --import', result.stderr)
+
+    def card_holders(self, holders, action):
+        """Run tools/card-holders.sh against a fake card and fake processes."""
+        source = (PROJECT / 'tools/card-holders.sh').read_text()
+        for prefix in ('/sys/', '/proc/'):
+            source = source.replace(prefix, str(self.root) + prefix)
+        library = self.put(self.root / 'card-holders.sh', source)
+        card = self.root / 'sys/bus/pci/devices/0000:05:00.0'
+        for node in ('video4linux/video0', 'sound/card4/controlC4', 'sound/card4/pcmC4D0c'):
+            (card / node).mkdir(parents=True)
+        for pid, (command, node) in holders.items():
+            self.put(self.root / f'proc/{pid}/comm', command + '\n')
+            (self.root / f'proc/{pid}/fd').mkdir()
+            (self.root / f'proc/{pid}/fd/7').symlink_to(node)
+        # An unrelated process with another card open.
+        self.put(self.root / 'proc/999/comm', 'pipewire\n')
+        (self.root / 'proc/999/fd').mkdir()
+        (self.root / 'proc/999/fd/3').symlink_to('/dev/snd/controlC0')
+        self.fake('systemctl', 'echo "systemctl $*" >> "$CALLS"\n')
+        return subprocess.run(['bash', '-c', f'set -euo pipefail; . "$1"; {action}', '-', str(library)],
+                              env=self.env, capture_output=True, text=True)
+
+    def test_mode_reload_pauses_desktop_audio_services_then_restores_them(self):
+        result = self.card_holders({100: ('wireplumber', '/dev/snd/controlC4'),
+                                    200: ('alsactl', '/dev/snd/controlC4')},
+                                   'release_card 0000:05:00.0; echo released; resume_card_holders')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        user = subprocess.run(['id', '-un'], capture_output=True, text=True).stdout.strip()
+        self.assertEqual(self.calls.read_text().splitlines(), [
+            'systemctl is-active --quiet alsa-state.service', 'systemctl stop alsa-state.service',
+            f'systemctl --user -M {user}@ is-active --quiet wireplumber.service',
+            f'systemctl --user -M {user}@ stop wireplumber.service',
+            f'systemctl --user -M {user}@ start wireplumber.service', 'systemctl start alsa-state.service'])
+
+    def test_mode_reload_waits_without_interrupting_a_capture_app(self):
+        result = self.card_holders({100: ('wireplumber', '/dev/snd/controlC4'),
+                                    300: ('python3', '/dev/video0'), 301: ('obs', '/dev/snd/pcmC4D0c')},
+                                   'release_card 0000:05:00.0')
+        self.assertEqual(result.returncode, 75)
+        self.assertIn('python3 (pid 300), obs (pid 301)', result.stderr)
+        self.assertFalse(self.calls.exists())
+
+    def test_mode_reload_without_holders_changes_nothing(self):
+        result = self.card_holders({}, 'release_card 0000:05:00.0; resume_card_holders')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.calls.exists())
 
     def test_system_boot_build_failure_installs_nothing(self):
         script = self.system_boot_installer()

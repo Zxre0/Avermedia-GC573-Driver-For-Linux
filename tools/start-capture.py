@@ -53,6 +53,20 @@ def ready(data):
         'led_live_divider': '0x000003af', 'led_live_enabled': '0x0000001f'}.items())
 
 
+def reload_needed(mode, data):
+    """Whether starting MODE will unload a loaded driver; mirrors the preserve checks below."""
+    if not data:
+        return False
+    scaled, passthrough = number(data, 'scaled_capture'), number(data, 'passthrough_only')
+    capture_kept = ready(data) and not scaled and not passthrough
+    if mode == 'scaled':
+        # Scaled mode waits for the first HDMI setup in capture mode first.
+        return not scaled and not (capture_kept and data.get('hdmi_ready') != '1')
+    if mode == 'passthrough':
+        return not (ready(data) and not scaled and passthrough)
+    return not capture_kept
+
+
 def number(data, key):
     try:
         return int(data.get(key, '0'), 0)
@@ -292,6 +306,15 @@ if __name__ == '__main__':
     experimental = len(sys.argv) == 3 and sys.argv[1] == '--experimental-144hz'
     passthrough = len(sys.argv) == 3 and sys.argv[1] == '--passthrough'
     handoff = len(sys.argv) == 3 and sys.argv[1] == '--handoff-phase'
+    if len(sys.argv) == 3 and sys.argv[1] in ('--reload-needed=capture', '--reload-needed=scaled',
+                                               '--reload-needed=passthrough'):
+        # Read-only: exit 0 when the start will reload the loaded driver.
+        import re
+        if not re.fullmatch(r'[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]', sys.argv[2]):
+            sys.exit(2)
+        status =Path('/sys/bus/pci/drivers/gc573_native') / sys.argv[2] / 'bringup_status'
+        data = fields(status.read_text()) if status.exists() else {}
+        sys.exit(0 if reload_needed(sys.argv[1].split('=', 1)[1], data) else 1)
     if os.geteuid() != 0 or (len(sys.argv) != 2 and not handoff and not passthrough and not scaled and not experimental):
         sys.exit('Use the installed GC573 helper with --start.')
     try:

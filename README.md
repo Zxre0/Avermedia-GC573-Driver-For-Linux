@@ -256,8 +256,11 @@ steps 2–3 in one go.) A home directory unlocked only at login needs the
 - **Headers missing or mismatched:** install headers for `uname -r`, or reboot into
   the kernel matching your headers, then rebuild.
 - **`Key was rejected by service`:** see [Secure Boot](#secure-boot).
-- **Module in use:** close OBS and other capture apps. WirePlumber can also hold
-  the audio device. Don't force-remove the module.
+- **Module in use:** close OBS, GC573 Preview and other capture apps. When a
+  mode change (including scaled mode at boot) needs to reload the driver, the
+  boot service briefly pauses WirePlumber and Fedora's `alsa-state` service,
+  which keep the audio device open. While a capture app has the card open, it
+  waits and retries, and the journal names that app. Don't force-remove the module.
 - **No video device / startup error:** check
   `journalctl -u gc573-native-system.service -b --no-pager`. A missing HDMI
   source alone should not prevent loading.
