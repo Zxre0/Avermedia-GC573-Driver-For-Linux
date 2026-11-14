@@ -8,6 +8,7 @@ import threading
 import time
 
 from gc573_control import discover, parse_status
+from gc573_discord import DiscordPresence
 
 
 class LatestFrame:
@@ -107,11 +108,15 @@ def run_gui(args):
             self.active_device = None
             self.active_size = None
             self.sources = []
+            self.presence = None
 
         def do_activate(self):
             if self.get_active_window():
                 self.get_active_window().present()
                 return
+            if not args.smoke_seconds:
+                # Discord status for as long as the preview is open.
+                self.presence = DiscordPresence().start()
             self.win = Gtk.ApplicationWindow(application=self, title='GC573 Preview')
             self.win.set_default_size(1100, 700)
             self.win.connect('close-request', self.close)
@@ -369,6 +374,9 @@ def run_gui(args):
                 GLib.source_remove(source)
             self.sources = []
             self.stop()
+            if self.presence:
+                self.presence.stop()
+                self.presence = None
             return False
 
         def smoke_done(self):

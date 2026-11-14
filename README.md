@@ -170,6 +170,14 @@ the device. In Discord, choose **Share Your Screen** and pick the preview
 window. Discord calls themselves have not been tested. For the lowest latency,
 play on HDMI OUT.
 
+While the preview window is open, your Discord status shows the project's
+Discord application with an elapsed-time counter. It is cleared when the
+preview closes. This uses the Discord desktop app's local connection (native,
+Flatpak or Snap), with no login or extra packages. If Discord isn't running,
+the preview works as usual and connects once Discord starts. To hide it,
+turn off **Share your detected activities with others** in Discord's
+Activity Privacy settings.
+
 ## Capture modes
 
 Switch modes with `tools/set-mode.py` (close OBS and Preview first). The choice
