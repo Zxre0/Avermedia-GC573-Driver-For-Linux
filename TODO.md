@@ -115,7 +115,7 @@ separately; an unchecked item has not been demonstrated complete.
   resolution/frame rate, capture/audio state and disconnected/error feedback.
 - [x] Prepare source for GitHub: portable paths and PCI discovery, GPL-2.0-only,
   contributor/protocol/testing documentation, CI, and clean-checkout tests.
-  Source repository: https://github.com/Zxre0/Avermedia-GC573-Driver-For-Linux.
+  Source repository: https://github.com/Zxre0/Open573-Linux.
   Private captures,
   research binaries and generated files are excluded from the staged source.
 
