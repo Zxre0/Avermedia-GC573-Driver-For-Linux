@@ -58,10 +58,31 @@ def connect(paths=None):
     return None
 
 
-def activity_frame(started, pid=None):
+def distribution(paths=(Path('/etc/os-release'), Path('/usr/lib/os-release'))):
+    """Distribution name and version from os-release, e.g. 'Fedora Linux 45'."""
+    for path in paths:
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+        values = {}
+        for line in text.splitlines():
+            key, separator, value = line.partition('=')
+            if separator:
+                values[key.strip()] = value.strip().strip('"\'')
+        name = ' '.join(filter(None, (values.get('NAME'), values.get('VERSION_ID'))))
+        name = name or values.get('PRETTY_NAME', '')
+        if len(name) >= 2:
+            return name[:128]  # Discord's limit for status text
+    return 'Linux'
+
+
+def activity_frame(started, pid=None, system=None):
     return encode(FRAME, {
         'cmd': 'SET_ACTIVITY', 'nonce': str(uuid.uuid4()),
         'args': {'pid': pid or os.getpid(), 'activity': {
+            'details': 'AVerMedia GC573 running on Linux',
+            'state': system or distribution(),
             'timestamps': {'start': started},
             # Other people see the button; Discord hides it on your own status.
             'buttons': [{'label': 'Open573-Linux on GitHub', 'url': REPOSITORY}]}}})

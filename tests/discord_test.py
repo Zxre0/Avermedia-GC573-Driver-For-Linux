@@ -66,6 +66,8 @@ class DiscordPresenceTest(unittest.TestCase):
         self.assertEqual(opcode, discord.FRAME)
         self.assertEqual(command['cmd'], 'SET_ACTIVITY')
         self.assertEqual(command['args']['activity'], {
+            'details': 'AVerMedia GC573 running on Linux',
+            'state': discord.distribution(),
             'timestamps': {'start': presence.started},
             'buttons': [{'label': 'Open573-Linux on GitHub',
                          'url': 'https://github.com/Zxre0/Open573-Linux'}]})
@@ -82,6 +84,20 @@ class DiscordPresenceTest(unittest.TestCase):
         presence.stop()
         self.assertLess(time.monotonic() - started, 1)
         self.assertFalse(presence.thread.is_alive())
+
+    def test_status_names_the_distribution(self):
+        fedora = self.root / 'fedora'
+        fedora.write_text('NAME="Fedora Linux"\nVERSION_ID=45\nPRETTY_NAME="Fedora Linux 45 (KDE Plasma Desktop Edition)"\n')
+        arch = self.root / 'arch'
+        arch.write_text('NAME="Arch Linux"\nPRETTY_NAME="Arch Linux"\nID=arch\n')
+        ubuntu = self.root / 'ubuntu'
+        ubuntu.write_text("NAME='Ubuntu'\nVERSION_ID='24.04'\n")
+        self.assertEqual(discord.distribution([fedora]), 'Fedora Linux 45')
+        self.assertEqual(discord.distribution([arch]), 'Arch Linux')
+        self.assertEqual(discord.distribution([ubuntu]), 'Ubuntu 24.04')
+        # Falls back to /usr/lib/os-release, then plain "Linux".
+        self.assertEqual(discord.distribution([self.root / 'missing', arch]), 'Arch Linux')
+        self.assertEqual(discord.distribution([self.root / 'missing']), 'Linux')
 
     def test_socket_search_covers_native_flatpak_and_snap_clients(self):
         paths = set(discord.socket_paths({'XDG_RUNTIME_DIR': '/run/user/1000'}))

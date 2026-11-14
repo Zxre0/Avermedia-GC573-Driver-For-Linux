@@ -171,7 +171,8 @@ window. Discord calls themselves have not been tested. For the lowest latency,
 play on HDMI OUT.
 
 While the preview window is open, your Discord status shows the project's
-Discord application with an elapsed-time counter. It is cleared when the
+Discord application with **AVerMedia GC573 running on Linux**, your
+distribution (for example *Fedora Linux 45*) and an elapsed-time counter. It is cleared when the
 preview closes. Other people also see an **Open573-Linux on GitHub** button
 linking to this repository. This uses the Discord desktop app's local connection (native,
 Flatpak or Snap), with no login or extra packages. If Discord isn't running,
