@@ -56,7 +56,7 @@ Clone the repository into a stable folder owned by your normal desktop account,
 then run the installer **without sudo** (it asks for sudo when needed):
 
 ```sh
-git clone https://github.com/Zxre0/Avermedia-GC573-Driver-For-Linux.git gc573-native
+git clone https://github.com/Zxre0/Open573-Linux.git gc573-native
 cd gc573-native
 ./install.sh
 ```
@@ -172,7 +172,8 @@ play on HDMI OUT.
 
 While the preview window is open, your Discord status shows the project's
 Discord application with an elapsed-time counter. It is cleared when the
-preview closes. This uses the Discord desktop app's local connection (native,
+preview closes. Other people also see an **Open573-Linux on GitHub** button
+linking to this repository. This uses the Discord desktop app's local connection (native,
 Flatpak or Snap), with no login or extra packages. If Discord isn't running,
 the preview works as usual and connects once Discord starts. To hide it,
 turn off **Share your detected activities with others** in Discord's
@@ -235,7 +236,7 @@ cat "/lib/modules/$(uname -r)/build/include/config/kernel.release"   # must matc
 ### 2. Build and load
 
 ```sh
-git clone https://github.com/Zxre0/Avermedia-GC573-Driver-For-Linux.git gc573-native
+git clone https://github.com/Zxre0/Open573-Linux.git gc573-native
 cd gc573-native
 ./tools/build.sh                      # no sudo; picks Clang or GCC from the kernel config
 sudo ./tools/load-probe.sh --start    # add a PCI address if you have several cards

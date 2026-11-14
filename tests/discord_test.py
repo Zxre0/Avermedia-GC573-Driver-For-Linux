@@ -65,7 +65,10 @@ class DiscordPresenceTest(unittest.TestCase):
         opcode, command = server.frames[1]
         self.assertEqual(opcode, discord.FRAME)
         self.assertEqual(command['cmd'], 'SET_ACTIVITY')
-        self.assertEqual(command['args']['activity'], {'timestamps': {'start': presence.started}})
+        self.assertEqual(command['args']['activity'], {
+            'timestamps': {'start': presence.started},
+            'buttons': [{'label': 'Open573-Linux on GitHub',
+                         'url': 'https://github.com/Zxre0/Open573-Linux'}]})
         self.assertFalse(server.closed.is_set())
         presence.stop()
         # Closing the socket is what makes Discord clear the status.

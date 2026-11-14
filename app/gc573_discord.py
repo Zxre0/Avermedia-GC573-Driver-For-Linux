@@ -12,6 +12,7 @@ import uuid
 # The project's Discord application: its name and icon, set in the Discord
 # Developer Portal, are what the status shows. Not a secret.
 CLIENT_ID = '1571006065657516082'
+REPOSITORY = 'https://github.com/Zxre0/Open573-Linux'
 HANDSHAKE, FRAME, CLOSE = 0, 1, 2
 RETRY_SECONDS = 15
 
@@ -60,7 +61,10 @@ def connect(paths=None):
 def activity_frame(started, pid=None):
     return encode(FRAME, {
         'cmd': 'SET_ACTIVITY', 'nonce': str(uuid.uuid4()),
-        'args': {'pid': pid or os.getpid(), 'activity': {'timestamps': {'start': started}}}})
+        'args': {'pid': pid or os.getpid(), 'activity': {
+            'timestamps': {'start': started},
+            # Other people see the button; Discord hides it on your own status.
+            'buttons': [{'label': 'Open573-Linux on GitHub', 'url': REPOSITORY}]}}})
 
 
 class DiscordPresence:
